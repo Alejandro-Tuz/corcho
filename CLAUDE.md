@@ -208,3 +208,8 @@ Decidido y cerrado. No proponer, no implementar:
 canales de chat privados por tarea, menciones, toque de atención, historial completo de
 actividad, edición de texto simultánea (necesitaría CRDTs), subida de fotos de perfil,
 login con contraseña, audio o video, selector de color libre para el fondo.
+
+
+Postgres está publicado en el puerto **5433** del host (no el 5432), porque hay otro
+PostgreSQL ocupando el estándar en esta máquina. Dentro del contenedor sigue siendo 5432.
+Redis sí usa el 6379 estándar.
