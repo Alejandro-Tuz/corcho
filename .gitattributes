@@ -1,0 +1,18 @@
+# LF en el repositorio y en el directorio de trabajo, siempre
+* text=auto eol=lf
+
+# Binarios: que git no los toque
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.mp3 binary
+*.wav binary
+
+# Archivos que deben ser LF sí o sí (se ejecutan en Linux)
+*.sh text eol=lf
+Dockerfile text eol=lf
