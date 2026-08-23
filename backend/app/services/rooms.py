@@ -128,8 +128,16 @@ def set_background(session: Session, room_slug: str, background: Background) -> 
     return BackgroundOutcome.OK
 
 
-def get_snapshot(session: Session, room_slug: str) -> RoomSnapshot | None:
-    """`None` si la sala no existe. Dos consultas en total, nunca una por nota:
+def get_snapshot(
+    session: Session, room_slug: str, *, participant_id: uuid.UUID
+) -> RoomSnapshot | None:
+    """`None` si la sala no existe. `participant_id` no se consulta -lo pasa el
+    caller, ya lo tiene del `join_room` que corrió antes- y se copia tal cual al
+    campo del mismo nombre en `RoomSnapshot`: es la identidad que este socket acaba
+    de establecer, no algo que dependa de la sala (ver docstring de `RoomSnapshot`
+    en `protocol.py` para por qué hace falta).
+
+    Dos consultas en total, nunca una por nota:
 
     1. `Room` con `selectinload` de `notes` (+ `claims`, + `reactions`) y de
        `participants`, en un solo viaje adicional a la consulta principal por
@@ -162,6 +170,7 @@ def get_snapshot(session: Session, room_slug: str) -> RoomSnapshot | None:
         return None
 
     return RoomSnapshot(
+        participant_id=participant_id,
         slug=room.slug,
         name=room.name,
         background=room.background,

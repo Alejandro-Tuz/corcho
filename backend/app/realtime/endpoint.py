@@ -133,10 +133,10 @@ async def _join(websocket: WebSocket, room: str) -> tuple[ParticipantState, Room
                 await websocket.close(code=4004)
                 return None
 
-            snapshot = rooms.get_snapshot(session, room)
+            assert result.participant is not None  # solo None junto con ROOM_NOT_FOUND
+            snapshot = rooms.get_snapshot(session, room, participant_id=result.participant.id)
             session.commit()
 
-        assert result.participant is not None  # solo None junto con ROOM_NOT_FOUND
         assert snapshot is not None  # la sala existe: se acaba de confirmar arriba
         return result.participant, snapshot
 

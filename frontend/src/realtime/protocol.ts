@@ -120,9 +120,19 @@ export interface RoomJoinIn {
   color: ParticipantColor
 }
 
-/** Enviado solo al socket que se unió, nunca a la sala. */
+/**
+ * Enviado solo al socket que se unió, nunca a la sala.
+ *
+ * `participant_id`: la identidad que este socket acaba de establecer con
+ * `room.join`. Es el único lugar sin ambigüedad para que el cliente aprenda su
+ * propio id -`PresenceJoined` no alcanza: no se difunde en una reconexión
+ * (`is_first=False`), y en el primer join correlacionarlo por orden de llegada o por
+ * nombre/avatar/color es frágil (joins simultáneos, catálogo chico de valores
+ * repetibles).
+ */
 export interface RoomSnapshot {
   type: 'room.snapshot'
+  participant_id: string
   slug: string
   name: string | null
   background: Background

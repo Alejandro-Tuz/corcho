@@ -295,6 +295,16 @@ No reabrir sin motivo nuevo.
 - **Multi-pestaña:** `disconnected_at` solo se marca cuando se cierra el **último** socket
   de ese participante. El conteo de sockets vivos va en memoria en `manager.py`. Con más
   de un worker ese contador tendría que vivir en Redis; con una instancia de Render, no.
+- **`RoomSnapshot.participant_id`:** el servidor le dice al cliente cuál es su propio
+  `participant_id` en el único evento que ya viaja en exclusiva al socket que se unió.
+  Encontrado en el diseño del store del frontend (día 2): el protocolo original no tenía
+  este campo porque se diseñó pensando en la sala y en las acciones sobre ella, no en qué
+  necesita saber un cliente sobre sí mismo. `PresenceJoined` no lo resolvía -no se difunde
+  en una reconexión, y en el primer join correlacionarlo por orden de llegada o por
+  nombre/avatar/color es frágil (joins simultáneos, catálogo chico de valores repetibles).
+  Si aparece otro dato de este tipo ("qué necesita saber el cliente sobre sí mismo", no
+  sobre la sala), este es el precedente: agregarlo al evento que ya es solo-para-mí, no
+  inventar una heurística de correlación del lado del cliente.
 
 ## Comandos
 

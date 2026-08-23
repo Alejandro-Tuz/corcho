@@ -155,9 +155,19 @@ class RoomJoinIn(Event):
 
 
 class RoomSnapshot(Event):
-    """Enviado solo al socket que se unió, nunca a la sala."""
+    """Enviado solo al socket que se unió, nunca a la sala.
+
+    `participant_id`: la identidad que acaba de establecer este socket con
+    `room.join`. Sin este campo el cliente no tiene forma confiable de saber cuál de
+    los participantes es él mismo -ni `PresenceJoined` alcanza: no se difunde en una
+    reconexión (`is_first=False`, decisión ya tomada), y en el primer join
+    correlacionarlo por orden de llegada o por nombre/avatar/color es una heurística
+    que se rompe con joins simultáneos o valores repetidos (catálogo chico). Este es
+    el único evento que ya viaja en exclusiva al socket que se unió, así que es el
+    lugar sin ambigüedad para decirlo una vez."""
 
     type: Literal["room.snapshot"] = "room.snapshot"
+    participant_id: uuid.UUID
     slug: str
     name: str | None
     background: Background
