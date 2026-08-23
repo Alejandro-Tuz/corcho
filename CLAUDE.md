@@ -90,6 +90,38 @@ bien la existente.
   corregido a `"bone"` (cambio de código, sin migración). Todo verificado con smoke
   tests funcionales contra Postgres real -no hay tests permanentes para estos tres
   servicios todavía, quedan para cuando exista `tests/conftest.py` compartido-.
+- **Día 2, dos bugs de backend encontrados en pleno desarrollo de frontend** (el
+  primero tumbó el proceso entero durante una prueba real de dos pestañas en carrera
+  por un cupo; el segundo salió a la luz recién al perseguir al primero):
+  - `handlers.dispatch()` publicaba el evento a difundir él mismo (`broker.publish`)
+    **antes** de que `endpoint.py` hiciera `session.commit()`. El lock de Postgres de
+    esa escritura quedaba tomado mientras se esperaba a que el broadcast terminara de
+    repartirse a toda la sala; un socket lento o medio muerto ahí adentro dejaba el
+    lock tomado mucho más de lo que la escritura en sí necesitaba, y cualquier otra
+    persona reclamando el mismo cupo se quedaba esperando ese lock sin saber por qué
+    -verificado a mano contra Postgres real: una fila de `notes` con `UPDATE ...
+    taken_count` bloqueada, la conexión que la sostenía "idle in transaction" un
+    minuto entero-. Corregido: `handlers.dispatch()` ahora **devuelve** el
+    `ServerEvent` a difundir (o `None`) en vez de publicarlo, y ya no importa
+    `RedisBroker` en absoluto; `endpoint.py` es quien llama a `broker.publish()`,
+    recién después de `session.commit()`.
+  - Con lo anterior aislado, un socket que moría en el momento exacto en que
+    `handlers.dispatch` intentaba responderle (un `Pong`, un rechazo) tumbaba **todo
+    el proceso**: `_message_loop` atrapa cualquier excepción de un mensaje y sigue el
+    bucle, pero eso incluía sin querer una desconexión detectada del lado del envío
+    -no siempre `WebSocketDisconnect`, Starlette no usa siempre esa clase para "ya
+    estás desconectado"-, así que el bucle volvía a `receive_text()` sobre una
+    conexión ya muerta, y ahí Starlette tira un `RuntimeError` distinto
+    ("WebSocket is not connected") que no atrapaba nada río arriba. Corregido:
+    después de cualquier excepción en el bucle, se comprueba
+    `websocket.application_state` -si ya no está `CONNECTED`, se sintetiza un
+    `WebSocketDisconnect` para forzar la limpieza normal (`disconnected_at`,
+    `presence.left`) en vez de reintentar sobre un socket muerto. Se prefirió
+    comprobar el estado real de la conexión a enumerar clases de excepción -no
+    depende de adivinar bien esa lista-. Verificado reproduciendo el escenario
+    original (dos pestañas en carrera real, un socket matado a la fuerza a mitad de
+    camino) ocho veces seguidas sin que el proceso se cayera ni una vez, y sin
+    conexiones `idle in transaction` acumuladas después.
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
@@ -279,6 +311,21 @@ No reabrir sin motivo nuevo.
   actualiza posición y status en el mismo evento.
 - **Reacciones:** varias distintas por participante y nota, una por emoji. Repetir el mismo
   emoji la retira (toggle). En la tarjeta se agrupan por emoji, con contador y quiénes.
+- **Tomar/soltar un cupo NO es optimista en el frontend, a propósito -única excepción
+  entre las acciones sobre una nota (crear, editar, mover y reaccionar sí lo son).**
+  `taken_count` es un contador compartido que cualquier participante puede mover al
+  mismo tiempo; mezclar mi incremento optimista con la confirmación de otra persona
+  llegando en el medio de mi propia espera no tiene una forma robusta de deshacerse
+  -bug real encontrado con dos pestañas en carrera de verdad por el mismo cupo,
+  documentado en el docstring de `PendingNoteOp` en `frontend/src/store/types.ts`-.
+  El botón se deshabilita al instante al clickear (sin doble clic mientras se espera),
+  pero el número solo se mueve cuando confirma el servidor. En localhost esa espera es
+  imperceptible; con latencia real de producción (Render) puede no serlo, y esto toca
+  justo el momento central de la demo. **Revisar esta decisión después del primer
+  deploy real:** si se siente lento, un intermedio a explorar es mostrar el pending
+  como un estado visual propio (ej. el botón en "..." en vez de deshabilitado sin más)
+  sin llegar a mover el contador -entre "no cambia nada" y "lo mueve y lo puede tener
+  que revertir" hay margen que no se exploró todavía.
 - **Catálogos visuales** (avatar, color, presets de fondo): validados solo con `Literal` en
   Pydantic, contra un módulo de constantes único. Sin CHECK en Postgres, para poder añadir
   un color durante el pulido sin migración. Excepción: `kind` y `status` sí son enums

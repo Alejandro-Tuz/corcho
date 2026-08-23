@@ -4,7 +4,7 @@
  * que no exista un segundo lugar donde se pueda desincronizar de `notes`.
  */
 
-import type { NoteState } from '../realtime/protocol'
+import type { NoteState, NoteStatus } from '../realtime/protocol'
 
 /**
  * Orden de notas: `(created_at, id)` ascendente, no orden de llegada.
@@ -52,4 +52,28 @@ export function sortNotesByCreation(notes: Record<string, NoteState>): string[] 
 
   orderCache.set(notes, sorted)
   return sorted
+}
+
+/**
+ * Las tres columnas fijas del Kanban (CLAUDE.md: "tres fijas... enum en el código,
+ * no tabla"), cada una con los ids de sus notas ya en el mismo orden que
+ * `sortNotesByCreation` -un solo recorrido de esa lista, repartido por `status`, en
+ * vez de tres `.filter()` separados que romperían la estabilidad referencial que
+ * pide `useRoomStore` (cada `.filter()` inline devolvería un array nuevo en cada
+ * render). Memoizado igual que `sortNotesByCreation`, por identidad de `notes`.
+ */
+const columnCache = new WeakMap<Record<string, NoteState>, Record<NoteStatus, string[]>>()
+
+export function sortNotesByColumn(notes: Record<string, NoteState>): Record<NoteStatus, string[]> {
+  const cached = columnCache.get(notes)
+  if (cached !== undefined) return cached
+
+  const columns: Record<NoteStatus, string[]> = { blocked: [], in_progress: [], done: [] }
+  for (const id of sortNotesByCreation(notes)) {
+    const note = notes[id]
+    if (note !== undefined) columns[note.status].push(id)
+  }
+
+  columnCache.set(notes, columns)
+  return columns
 }

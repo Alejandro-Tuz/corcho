@@ -1,33 +1,35 @@
 /**
- * El lienzo: fondo de la sala + las notas encima + -bloque 2- los cursores de los
- * demás. Sin columnas todavía (bloque 3) -por eso toda nota nueva arranca en
- * `status: 'blocked'` fijo, sin selector: no hay dónde mostrar ese dato todavía-.
+ * El lienzo: tres columnas fijas (bloque 3) + fondo de la sala + los cursores de los
+ * demás. Toda nota nueva arranca en la primera columna (`status: 'blocked'`); de ahí
+ * en más, `Note.tsx` decide a qué columna se mueve según dónde se suelta el
+ * arrastre -ver su docstring, es donde vive la parte interesante de columnas.
  *
  * Creación por `window.prompt()`, no un formulario: es la interacción más fea posible
  * a propósito -"funcionalidad primero, diseño después", CLAUDE.md- y evita construir
  * un modal para algo que el pulido del día 3 va a rehacer de cero.
  *
  * El cursor propio se manda desde acá (`onPointerMove` sobre el lienzo entero, no
- * por nota) porque es donde tiene sentido la posición relativa: `presence.cursor`
- * viaja en coordenadas del lienzo, iguales a `position_x/y` de una nota, así que el
- * mismo origen (la esquina del div del lienzo) sirve para las dos cosas.
+ * por nota ni por columna) porque `presence.cursor` viaja en coordenadas del lienzo
+ * completo, no de una columna -no hace falta esa precisión para un cursor-.
+ * `data-canvas-root` es el mismo gancho que usa `Note.tsx` para convertir la posición
+ * de un fantasma ajeno a la pantalla de quien mira.
  */
 
 import { useMemo, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
-import { sortNotesByCreation } from '../../store/selectors'
 import { throttle } from '../../realtime/throttle'
-import { Note } from '../notes/Note'
+import { BACKGROUNDS } from '../../lib/constants'
 import { RemoteCursors } from '../presence/RemoteCursors'
 import { BACKGROUND_COLORS } from './backgroundColor'
+import { Column } from './Column'
+import { COLUMNS } from './columns'
 
 const CURSOR_BROADCAST_INTERVAL_MS = 50
 
 export function Canvas() {
   const connectionStatus = useRoom((s) => s.connectionStatus)
   const background = useRoom((s) => s.background)
-  const noteIds = useRoom((s) => sortNotesByCreation(s.notes))
   const actions = useRoomActions()
 
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -90,23 +92,43 @@ export function Canvas() {
         <button type="button" onClick={handleCreateShared}>
           + nota compartida
         </button>
-        <span>({connectionStatus})</span>
+
+        <span style={{ marginLeft: 16 }}>fondo:</span>
+        {BACKGROUNDS.map((bg) => (
+          <button
+            key={bg}
+            type="button"
+            title={bg}
+            onClick={() => actions.setBackground(bg)}
+            style={{
+              width: 20,
+              height: 20,
+              padding: 0,
+              background: BACKGROUND_COLORS[bg],
+              border: bg === background ? '2px solid black' : '1px solid #999',
+            }}
+          />
+        ))}
+
+        <span style={{ marginLeft: 16 }}>({connectionStatus})</span>
       </div>
 
       <div
         ref={canvasRef}
+        data-canvas-root
         onPointerMove={handlePointerMove}
         style={{
           position: 'relative',
+          display: 'flex',
           width: '100%',
           height: '82vh',
           background: BACKGROUND_COLORS[background],
           border: '1px solid #999',
-          overflow: 'hidden',
+          overflow: 'visible',
         }}
       >
-        {noteIds.map((id) => (
-          <Note key={id} noteId={id} />
+        {COLUMNS.map((col) => (
+          <Column key={col.status} status={col.status} label={col.label} />
         ))}
         <RemoteCursors />
       </div>
@@ -115,5 +137,5 @@ export function Canvas() {
 }
 
 function randomOffset(): number {
-  return 40 + Math.random() * 300
+  return 20 + Math.random() * 150
 }

@@ -2,11 +2,23 @@
 
 `dispatch()` es lo único que `realtime/endpoint.py` llama por cada mensaje posterior a
 `room.join`. Acá se traduce el `Outcome` tipado de cada servicio a los eventos de
-`protocol.py`, incluido decidir a quién van: `broker.publish()` para lo que le importa
-a toda la sala, `manager.send_to_socket()` para lo que responde solo a quien lo pidió
-(un rechazo de cupo, un error, la confirmación de un ping). Nunca
-`manager.broadcast()` directo -ese atajo se salta a Redis y rompe la sala en cuanto haya
-más de un worker.
+`protocol.py`, incluido decidir a quién van: las respuestas solo-para-quien-lo-pidió
+(un rechazo de cupo, un error, la confirmación de un ping) se mandan de inmediato con
+`manager.send_to_socket()` -no persistieron nada, no hay motivo para esperar-; lo que
+le importa a toda la sala se **devuelve**, no se manda acá.
+
+Ese devolver en vez de mandar es a propósito, y corrige un bug real: antes,
+`dispatch()` recibía el `broker` y llamaba `broker.publish()` él mismo, lo que
+significaba que el `session.commit()` de `endpoint.py` -que viene después, en el
+caller- esperaba a que el broadcast completo terminara (entrega local a todos los
+sockets de la sala + publish a Redis) antes de soltar la fila que acababa de escribir.
+Un socket lento o medio muerto en esa sala podía dejar el commit -y con él, el lock de
+Postgres- colgado mucho más de lo que la escritura en sí necesitaba: cualquier otra
+persona reclamando el mismo cupo se quedaba esperando ese lock, no una demora de
+milisegundos sino de lo que tardara ese socket en fallar. Devolviendo el evento a
+difundir (o `None`) y dejando que `endpoint.py` llame a `broker.publish()` recién
+después de `session.commit()`, el commit nunca espera a un socket ajeno. `handlers.py`
+ya no importa `RedisBroker` en absoluto -no lo necesita para nada más.
 
 Sin lógica de negocio acá: cada rama es servicio -> if/else sobre el outcome -> evento.
 La única lógica propia de este módulo es esa traducción, y el aviso de mejor esfuerzo de
@@ -19,7 +31,6 @@ import uuid
 from fastapi import WebSocket
 from sqlalchemy.orm import Session
 
-from app.realtime.broker import RedisBroker
 from app.realtime.manager import ConnectionManager
 from app.realtime.protocol import (
     ChatMessageIn,
@@ -55,6 +66,7 @@ from app.realtime.protocol import (
     RoomBackgroundIn,
     RoomBackgroundOut,
     RoomJoinIn,
+    ServerEvent,
 )
 from app.services import chat, claims, notes, rooms
 from app.services.claims import ClaimOutcome, ReleaseOutcome
@@ -85,10 +97,13 @@ async def dispatch(
     event: ClientEvent,
     websocket: WebSocket,
     manager: ConnectionManager,
-    broker: RedisBroker,
-) -> None:
+) -> ServerEvent | None:
     """Único punto de entrada desde `endpoint.py` para todo mensaje posterior a
-    `room.join`.
+    `room.join`. Devuelve el evento a difundir a la sala si corresponde -el caller
+    (`endpoint.py`) es quien decide cuándo publicarlo, después de `session.commit()`,
+    ver el docstring del módulo-, o `None` si esta acción no le importa a nadie más
+    que a quien la pidió (un rechazo, un error, un `pong`) o no cambió nada
+    (`ClaimOutcome.ALREADY_HELD`).
 
     Si algo inesperado revienta a mitad de camino -un bug de servicio, una restricción
     de Postgres no prevista, cualquier cosa que no sea uno de los `Outcome` ya
@@ -113,7 +128,7 @@ async def dispatch(
     el primero. `endpoint.py` sigue siendo quien decide el rollback de la sesión y
     logea -acá no se atrapa nada para esconderlo, siempre se relanza."""
     try:
-        await _dispatch(session, room, participant_id, event, websocket, manager, broker)
+        return await _dispatch(session, room, participant_id, event, websocket, manager)
     except Exception:
         note_id = _note_id_of(event)
         if note_id is not None:
@@ -136,8 +151,7 @@ async def _dispatch(
     event: ClientEvent,
     websocket: WebSocket,
     manager: ConnectionManager,
-    broker: RedisBroker,
-) -> None:
+) -> ServerEvent | None:
     match event:
         case RoomJoinIn():
             # La identidad de la conexión se establece una única vez, con el primer
@@ -148,6 +162,7 @@ async def _dispatch(
                 websocket,
                 ErrorEvent(code="invalid_message", message="ya estás conectado a esta sala"),
             )
+            return None
 
         case NoteCreateIn():
             note = notes.create_note(
@@ -163,7 +178,7 @@ async def _dispatch(
                 position_y=event.position_y,
                 capacity=event.capacity,
             )
-            await broker.publish(room, NoteCreateOut(**note.model_dump()))
+            return NoteCreateOut(**note.model_dump())
 
         case NoteUpdateIn():
             result = notes.update_note(
@@ -174,23 +189,18 @@ async def _dispatch(
                     websocket,
                     ErrorEvent(code="not_found", message="la nota no existe", note_id=event.id),
                 )
-            elif result.outcome is NoteOutcome.FORBIDDEN:
+                return None
+            if result.outcome is NoteOutcome.FORBIDDEN:
                 await manager.send_to_socket(
                     websocket,
                     ErrorEvent(
                         code="forbidden", message="no sos el autor de esta nota", note_id=event.id
                     ),
                 )
-            else:
-                await broker.publish(
-                    room,
-                    NoteUpdateOut(
-                        id=event.id,
-                        text=result.text,
-                        color=result.color,
-                        updated_at=result.updated_at,
-                    ),
-                )
+                return None
+            return NoteUpdateOut(
+                id=event.id, text=result.text, color=result.color, updated_at=result.updated_at
+            )
 
         case NoteMoveIn():
             result = notes.move_note(
@@ -206,23 +216,21 @@ async def _dispatch(
                     websocket,
                     ErrorEvent(code="not_found", message="la nota no existe", note_id=event.id),
                 )
-            elif result.outcome is NoteOutcome.FORBIDDEN:
+                return None
+            if result.outcome is NoteOutcome.FORBIDDEN:
                 await manager.send_to_socket(
                     websocket,
                     ErrorEvent(
                         code="forbidden", message="no sos el autor de esta nota", note_id=event.id
                     ),
                 )
-            else:
-                await broker.publish(
-                    room,
-                    NoteMoveOut(
-                        id=event.id,
-                        position_x=result.position_x,
-                        position_y=result.position_y,
-                        status=result.status,
-                    ),
-                )
+                return None
+            return NoteMoveOut(
+                id=event.id,
+                position_x=result.position_x,
+                position_y=result.position_y,
+                status=result.status,
+            )
 
         case NoteDeleteIn():
             outcome = notes.delete_note(session, event.id, participant_id)
@@ -231,15 +239,16 @@ async def _dispatch(
                     websocket,
                     ErrorEvent(code="not_found", message="la nota no existe", note_id=event.id),
                 )
-            elif outcome is NoteOutcome.FORBIDDEN:
+                return None
+            if outcome is NoteOutcome.FORBIDDEN:
                 await manager.send_to_socket(
                     websocket,
                     ErrorEvent(
                         code="forbidden", message="no sos el autor de esta nota", note_id=event.id
                     ),
                 )
-            else:
-                await broker.publish(room, NoteDeleteOut(id=event.id))
+                return None
+            return NoteDeleteOut(id=event.id)
 
         case NoteClaimIn():
             result = claims.take(session, event.note_id, participant_id)
@@ -251,6 +260,7 @@ async def _dispatch(
                             code="not_found", message="la nota no existe", note_id=event.note_id
                         ),
                     )
+                    return None
                 case ClaimOutcome.FULL:
                     await manager.send_to_socket(
                         websocket,
@@ -258,16 +268,14 @@ async def _dispatch(
                             note_id=event.note_id, participant_id=participant_id, reason="full"
                         ),
                     )
+                    return None
                 case ClaimOutcome.ALREADY_HELD:
-                    pass  # idempotente: nadie tomó nada nuevo, nada que difundir
+                    return None  # idempotente: nadie tomó nada nuevo, nada que difundir
                 case ClaimOutcome.TAKEN:
-                    await broker.publish(
-                        room,
-                        NoteClaimOut(
-                            note_id=event.note_id,
-                            participant_id=participant_id,
-                            taken_count=result.taken_count,
-                        ),
+                    return NoteClaimOut(
+                        note_id=event.note_id,
+                        participant_id=participant_id,
+                        taken_count=result.taken_count,
                     )
 
         case NoteReleaseIn():
@@ -280,6 +288,7 @@ async def _dispatch(
                             code="not_found", message="la nota no existe", note_id=event.note_id
                         ),
                     )
+                    return None
                 case ReleaseOutcome.NOT_HELD:
                     await manager.send_to_socket(
                         websocket,
@@ -287,14 +296,12 @@ async def _dispatch(
                             note_id=event.note_id, participant_id=participant_id, reason="not_held"
                         ),
                     )
+                    return None
                 case ReleaseOutcome.RELEASED:
-                    await broker.publish(
-                        room,
-                        NoteReleaseOut(
-                            note_id=event.note_id,
-                            participant_id=participant_id,
-                            taken_count=result.taken_count,
-                        ),
+                    return NoteReleaseOut(
+                        note_id=event.note_id,
+                        participant_id=participant_id,
+                        taken_count=result.taken_count,
                     )
 
         case ReactionToggleIn():
@@ -306,22 +313,19 @@ async def _dispatch(
                         code="not_found", message="la nota no existe", note_id=event.note_id
                     ),
                 )
-            else:
-                await broker.publish(
-                    room,
-                    ReactionToggleOut(
-                        note_id=event.note_id,
-                        participant_id=participant_id,
-                        emoji=event.emoji,
-                        active=result.active,
-                    ),
-                )
+                return None
+            return ReactionToggleOut(
+                note_id=event.note_id,
+                participant_id=participant_id,
+                emoji=event.emoji,
+                active=result.active,
+            )
 
         case ChatMessageIn():
             message = chat.create_message(
                 session, room, participant_id, id=event.id, note_id=event.note_id, text=event.text
             )
-            await broker.publish(room, ChatMessageOut(**message.model_dump()))
+            return ChatMessageOut(**message.model_dump())
 
         case RoomBackgroundIn():
             outcome = rooms.set_background(session, room, event.background)
@@ -329,46 +333,36 @@ async def _dispatch(
                 await manager.send_to_socket(
                     websocket, ErrorEvent(code="not_found", message="la sala no existe")
                 )
-            else:
-                await broker.publish(room, RoomBackgroundOut(background=event.background))
+                return None
+            return RoomBackgroundOut(background=event.background)
 
         case Ping():
             await manager.send_to_socket(websocket, Pong())
+            return None
 
         # --- efímeros: solo se reenvían, nunca tocan la base (invariante 6) ---------
 
         case PresenceCursorIn():
-            await broker.publish(
-                room, PresenceCursorOut(participant_id=participant_id, x=event.x, y=event.y)
-            )
+            return PresenceCursorOut(participant_id=participant_id, x=event.x, y=event.y)
 
         case PresenceDraggingIn():
-            await broker.publish(
-                room,
-                PresenceDraggingOut(
-                    participant_id=participant_id,
-                    note_id=event.note_id,
-                    position_x=event.position_x,
-                    position_y=event.position_y,
-                ),
+            return PresenceDraggingOut(
+                participant_id=participant_id,
+                note_id=event.note_id,
+                position_x=event.position_x,
+                position_y=event.position_y,
             )
 
         case PresenceDraftingIn():
-            await broker.publish(
-                room,
-                PresenceDraftingOut(
-                    participant_id=participant_id,
-                    kind=event.kind,
-                    position_x=event.position_x,
-                    position_y=event.position_y,
-                    active=event.active,
-                ),
+            return PresenceDraftingOut(
+                participant_id=participant_id,
+                kind=event.kind,
+                position_x=event.position_x,
+                position_y=event.position_y,
+                active=event.active,
             )
 
         case ChatTypingIn():
-            await broker.publish(
-                room,
-                ChatTypingOut(
-                    participant_id=participant_id, note_id=event.note_id, active=event.active
-                ),
+            return ChatTypingOut(
+                participant_id=participant_id, note_id=event.note_id, active=event.active
             )

@@ -20,6 +20,7 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
+from starlette.websockets import WebSocketState
 
 from app.db.session import SessionLocal
 from app.realtime import handlers
@@ -150,11 +151,33 @@ async def _message_loop(
 ) -> None:
     """Cada mensaje entrante es su propia transacción: se abre una `Session`, se
     despacha a `handlers.py`, se commitea, se cierra -nunca una sesión que viva más
-    que un solo mensaje. La única salida de este bucle es `WebSocketDisconnect` desde
-    `receive_text()`, deliberadamente fuera del `try`: cualquier otra excepción -de
-    parseo o de `handlers.dispatch`- se atrapa, se logea y el bucle sigue, para que un
-    handler roto no tumbe el resto de la conexión (mismo criterio que
-    `broker._listen`)."""
+    que un solo mensaje. La única salida normal de este bucle es `WebSocketDisconnect`
+    desde `receive_text()`, deliberadamente fuera del `try`: cualquier otra excepción
+    -de parseo o de `handlers.dispatch`- se atrapa, se logea y el bucle sigue, para
+    que un handler roto no tumbe el resto de la conexión (mismo criterio que
+    `broker._listen`).
+
+    `broker.publish()` del evento que `handlers.dispatch` devuelve se llama recién acá
+    -después de `session.commit()`, con la sesión ya cerrada-, nunca desde adentro de
+    `handlers.py`. Bug real encontrado: antes, `dispatch()` publicaba él mismo, así
+    que el `commit()` -y el lock de Postgres de esa escritura- esperaba a que
+    terminara de repartirse a toda la sala. Un socket lento o medio muerto en esa
+    sala dejaba el lock tomado mucho más de lo que la escritura en sí necesitaba, y
+    cualquier otra persona reclamando el mismo cupo se quedaba esperando ese lock sin
+    saber por qué. Ver también el docstring de `handlers.dispatch`.
+
+    Si `manager.send_to_socket()` (una respuesta solo-para-quien-pidió, adentro de
+    `handlers.dispatch`) le falla a ESTE MISMO socket porque ya está desconectado, eso
+    también cae acá como una excepción cualquiera -no necesariamente
+    `WebSocketDisconnect`, Starlette no siempre usa esa clase para "ya estás
+    desconectado"-. Sin el chequeo de `application_state` de abajo, el bucle seguía
+    de largo y el próximo `receive_text()` reventaba con un `RuntimeError` distinto
+    ("WebSocket is not connected") que no atrapa nada río arriba -tumbaba el proceso
+    entero, bug real encontrado y reproducido a propósito con un socket matado a la
+    fuerza en medio de una carrera de cupos-. Comprobar el estado real del socket
+    después de cualquier excepción, en vez de intentar enumerar cada clase de
+    excepción que Starlette podría tirar, es lo que hace que este chequeo no dependa
+    de adivinar bien esa lista."""
     while True:
         raw = await websocket.receive_text()
 
@@ -167,15 +190,24 @@ async def _message_loop(
             continue
 
         try:
+            broadcast_event = None
             with SessionLocal() as session:
-                await handlers.dispatch(
-                    session, room, participant_id, event, websocket, manager, broker
+                broadcast_event = await handlers.dispatch(
+                    session, room, participant_id, event, websocket, manager
                 )
                 session.commit()
+            if broadcast_event is not None:
+                await broker.publish(room, broadcast_event)
         except Exception:
             logger.exception(
                 "Fallo manejando %s en sala %s (participant=%s)", event.type, room, participant_id
             )
+            if websocket.application_state != WebSocketState.CONNECTED:
+                # El socket ya no sirve para nada -alguna respuesta a ESTE mensaje
+                # falló al mandarse porque ya está desconectado-. Cortar acá en vez
+                # de seguir el bucle, tal como si hubiera llegado el disconnect por
+                # el camino esperado (ver docstring de arriba).
+                raise WebSocketDisconnect(code=1006) from None
 
 
 async def _leave(

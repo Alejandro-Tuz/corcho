@@ -19,20 +19,28 @@
  *
  * ## Estado optimista con reconciliación (invariante 7)
  *
- * Cada acción sobre una nota deja un `PendingNoteOp` en `pendingNoteOps[id]` con el
- * valor de `notes[id]` de un instante antes (`restore`). Si la acción se confirma, se
- * pisa con los valores autoritativos y se borra el pending. Si se rechaza (evento
- * tipado como `note.claim_rejected`, o un `error` genérico con ese `note_id`), se
- * vuelve a `restore` -el rebote que pide la invariante-.
+ * Cada acción sobre una nota deja un `PendingNoteOp` en `pendingNoteOps[id]`. Si se
+ * confirma, se pisa con los valores autoritativos y se borra el pending. Si se
+ * rechaza (evento tipado como `note.claim_rejected`, o un `error` genérico con ese
+ * `note_id`), `rollbackPendingOp` deshace -el rebote que pide la invariante-.
  *
- * Excepción a "mutar al instante": `note.delete` NO borra la nota de `notes` de
- * entrada, solo marca `pendingNoteOps[id] = {kind:'delete'}` para que la UI
- * deshabilite el control mientras tanto. Borrar optimistamente y tener que hacerla
- * reaparecer ante un rechazo es más parpadeo que beneficio -a diferencia de crear o
- * mover, achicar no tiene nada de "instantáneo" que ganar-, y de paso deja el enganche
- * que el pulido del día 3 va a necesitar tal cual ("se elimina del store al terminar
- * la animación, no al recibir el evento": hoy sin animación se borra apenas confirma
- * el servidor; el día 3 alguien intercepta este mismo punto para animar antes).
+ * Dos excepciones a "mutar `notes[id]` al instante", las dos por la misma clase de
+ * motivo -ver el docstring de `PendingNoteOp` en `store/types.ts` para el detalle
+ * completo de cada una-:
+ *
+ * - `claim`/`release` no tocan `taken_count`/`claims` hasta que confirma el
+ *   servidor: es un contador COMPARTIDO, y mezclar mi incremento optimista con la
+ *   confirmación de otra persona en la misma carrera no tiene una forma robusta de
+ *   deshacerse (bug real encontrado con dos pestañas en carrera de verdad por el
+ *   mismo cupo). `pending` solo deshabilita el botón mientras se espera.
+ * - `note.delete` NO borra la nota de `notes` de entrada, solo marca
+ *   `pendingNoteOps[id] = {kind:'delete'}` para que la UI deshabilite el control
+ *   mientras tanto. Borrar optimistamente y tener que hacerla reaparecer ante un
+ *   rechazo es más parpadeo que beneficio -a diferencia de crear o mover, achicar no
+ *   tiene nada de "instantáneo" que ganar-, y de paso deja el enganche que el pulido
+ *   del día 3 va a necesitar tal cual ("se elimina del store al terminar la
+ *   animación, no al recibir el evento": hoy sin animación se borra apenas confirma
+ *   el servidor; el día 3 alguien intercepta este mismo punto para animar antes).
  */
 
 import { useSyncExternalStore } from 'react'
@@ -160,24 +168,31 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
   }
 
   function updateNote(id: string, text: string, color: NoteColor): void {
-    const restore = state.notes[id]
-    if (restore === undefined) return
+    const current = state.notes[id]
+    if (current === undefined) return
+    const restore = { text: current.text, color: current.color }
     setState((s) => ({
       ...s,
-      notes: { ...s.notes, [id]: { ...restore, text, color } },
+      notes: { ...s.notes, [id]: { ...current, text, color } },
       pendingNoteOps: { ...s.pendingNoteOps, [id]: { kind: 'update', restore } },
     }))
     socket.send({ type: 'note.update', id, text, color })
   }
 
   function moveNote(id: string, positionX: number, positionY: number, status: NoteStatus): void {
-    // `restore` = lo que el store cree AHORA, no la posición de drag-start del
-    // componente: ver el docstring de `PendingNoteOp` en store/types.ts.
-    const restore = state.notes[id]
-    if (restore === undefined) return
+    // `restore` = lo que el store cree AHORA (solo los campos que esta acción
+    // toca), no la posición de drag-start del componente: ver el docstring de
+    // `PendingNoteOp` en store/types.ts.
+    const current = state.notes[id]
+    if (current === undefined) return
+    const restore = {
+      position_x: current.position_x,
+      position_y: current.position_y,
+      status: current.status,
+    }
     setState((s) => ({
       ...s,
-      notes: { ...s.notes, [id]: { ...restore, position_x: positionX, position_y: positionY, status } },
+      notes: { ...s.notes, [id]: { ...current, position_x: positionX, position_y: positionY, status } },
       pendingNoteOps: { ...s.pendingNoteOps, [id]: { kind: 'move', restore } },
     }))
     socket.send({ type: 'note.move', id, position_x: positionX, position_y: positionY, status })
@@ -196,18 +211,21 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
     if (current.claims.includes(me.participantId)) return // ya lo tengo
     if (state.pendingNoteOps[id]?.kind === 'claim') return // ya hay un claim en vuelo: sin doble clic
 
-    const restore = current
+    // A propósito NO optimista sobre `taken_count`/`claims` -a diferencia del resto
+    // de las acciones-. Bug real encontrado con dos pestañas en carrera de verdad
+    // por el mismo cupo: `taken_count` es un contador COMPARTIDO que cualquiera
+    // puede tocar al mismo tiempo, y `note.claim` de otra persona ya lo actualiza a
+    // su valor autoritativo (`event.taken_count`) mientras mi propio claim sigue
+    // pendiente -mezclar mi incremento optimista con esa actualización ajena
+    // duplicaba o perdía cuenta según el orden de llegada, sin una forma limpia de
+    // "deshacer solo lo mío" que sobreviva a un contador que otro ya movió-. Acá
+    // alcanza con marcar `pending` para deshabilitar el botón (sin doble clic
+    // mientras se espera) y dejar que el número lo mueva únicamente el evento
+    // confirmado -en localhost, imperceptible; el rebote de un rechazo es entonces
+    // "el botón vuelve a estar habilitado", no "el número salta y vuelve".
     setState((s) => ({
       ...s,
-      notes: {
-        ...s.notes,
-        [id]: {
-          ...current,
-          taken_count: current.taken_count + 1,
-          claims: [...current.claims, me.participantId],
-        },
-      },
-      pendingNoteOps: { ...s.pendingNoteOps, [id]: { kind: 'claim', restore } },
+      pendingNoteOps: { ...s.pendingNoteOps, [id]: { kind: 'claim' } },
     }))
     socket.send({ type: 'note.claim', note_id: id })
   }
@@ -219,18 +237,10 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
     if (!current.claims.includes(me.participantId)) return
     if (state.pendingNoteOps[id]?.kind === 'release') return
 
-    const restore = current
+    // Mismo criterio que claimNote: no optimista sobre el contador compartido.
     setState((s) => ({
       ...s,
-      notes: {
-        ...s.notes,
-        [id]: {
-          ...current,
-          taken_count: Math.max(0, current.taken_count - 1),
-          claims: current.claims.filter((p) => p !== me.participantId),
-        },
-      },
-      pendingNoteOps: { ...s.pendingNoteOps, [id]: { kind: 'release', restore } },
+      pendingNoteOps: { ...s.pendingNoteOps, [id]: { kind: 'release' } },
     }))
     socket.send({ type: 'note.release', note_id: id })
   }
@@ -240,7 +250,6 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
     const me = state.me
     if (current === undefined || me === null) return
 
-    const restore = current
     const already = current.reactions.some(
       (r) => r.participant_id === me.participantId && r.emoji === emoji,
     )
@@ -251,7 +260,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
     setState((s) => ({
       ...s,
       notes: { ...s.notes, [id]: { ...current, reactions } },
-      pendingNoteOps: { ...s.pendingNoteOps, [id]: { kind: 'reaction', restore } },
+      pendingNoteOps: { ...s.pendingNoteOps, [id]: { kind: 'reaction', emoji } },
     }))
     socket.send({ type: 'reaction.toggle', note_id: id, emoji })
   }
@@ -309,19 +318,66 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
 
   // --- aplicar: ServerEvent -> store, llamado solo por dispatch() -------------------
 
-  function rollbackNote(noteId: string): void {
+  /**
+   * Deshace la acción pendiente de una nota cuando el servidor la rechaza -evento
+   * tipado, o `error` genérico-. Cada rama deshace SOLO lo que esa acción tocó,
+   * relativo al estado ACTUAL de la nota, nunca pisando la nota entera con una foto
+   * vieja: `claim`/`release`/`reaction` en particular tienen que sobrevivir a una
+   * actualización legítima y concurrente de OTRA persona que haya llegado mientras
+   * la mía esperaba respuesta -bug real encontrado con dos pestañas en carrera por
+   * el mismo cupo: si acá se restauraba la nota entera a como estaba antes de mi
+   * click, el cupo que la otra persona sí ganó desaparecía de mi pantalla-. Ver
+   * también el docstring de `PendingNoteOp` en `store/types.ts`.
+   */
+  function rollbackPendingOp(noteId: string): void {
     setState((s) => {
       const pending = s.pendingNoteOps[noteId]
       if (pending === undefined) return s
+
       if (pending.kind === 'create') {
         return { ...s, notes: omit(s.notes, noteId), pendingNoteOps: omit(s.pendingNoteOps, noteId) }
       }
+
+      const current = s.notes[noteId]
+      if (current === undefined) {
+        // La nota ya no está -otro evento la sacó mientras tanto-: nada que
+        // deshacer sobre datos que ya no existen, solo soltar el pending.
+        return { ...s, pendingNoteOps: omit(s.pendingNoteOps, noteId) }
+      }
+
       if (pending.kind === 'delete') {
         return { ...s, pendingNoteOps: omit(s.pendingNoteOps, noteId) } // nunca se tocó `notes`
       }
+
+      if (pending.kind === 'update' || pending.kind === 'move') {
+        return {
+          ...s,
+          notes: { ...s.notes, [noteId]: { ...current, ...pending.restore } },
+          pendingNoteOps: omit(s.pendingNoteOps, noteId),
+        }
+      }
+
+      if (pending.kind === 'claim' || pending.kind === 'release') {
+        // claimNote/releaseNote no tocan `notes` de manera optimista (ver sus
+        // docstrings): nada que deshacer más que el pending, el número nunca se
+        // movió hasta que confirmara.
+        return { ...s, pendingNoteOps: omit(s.pendingNoteOps, noteId) }
+      }
+
+      const me = s.me
+      if (me === null) return { ...s, pendingNoteOps: omit(s.pendingNoteOps, noteId) }
+
+      // pending.kind === 'reaction': re-alternar el mismo emoji, relativo a las
+      // reacciones actuales -no a una foto vieja-.
+      const stillMine = current.reactions.some(
+        (r) => r.participant_id === me.participantId && r.emoji === pending.emoji,
+      )
+      const reactions = stillMine
+        ? current.reactions.filter((r) => !(r.participant_id === me.participantId && r.emoji === pending.emoji))
+        : [...current.reactions, { emoji: pending.emoji, participant_id: me.participantId }]
       return {
         ...s,
-        notes: { ...s.notes, [noteId]: pending.restore },
+        notes: { ...s.notes, [noteId]: { ...current, reactions } },
         pendingNoteOps: omit(s.pendingNoteOps, noteId),
       }
     })
@@ -480,17 +536,24 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
         ? current.claims
         : [...current.claims, event.participant_id]
       const pending = s.pendingNoteOps[event.note_id]
+      // Bug real encontrado con dos pestañas: `note.claim` es un broadcast, así que
+      // ESTE evento puede ser la confirmación de un `claimNote` ajeno, no del mío.
+      // Sin comparar `event.participant_id` contra `s.me`, el `claim` de Beto podía
+      // limpiar el `pending` de Alicia -que seguía esperando el suyo-, y cuando el
+      // rechazo de Alicia llegaba después, `rollbackNote` no encontraba nada que
+      // deshacer: su propio id le quedaba pegado en `claims` para siempre, viéndose
+      // a sí misma con un cupo que en realidad nunca tuvo.
+      const isMine = pending?.kind === 'claim' && event.participant_id === s.me?.participantId
       return {
         ...s,
         notes: { ...s.notes, [event.note_id]: { ...current, taken_count: event.taken_count, claims } },
-        pendingNoteOps:
-          pending?.kind === 'claim' ? omit(s.pendingNoteOps, event.note_id) : s.pendingNoteOps,
+        pendingNoteOps: isMine ? omit(s.pendingNoteOps, event.note_id) : s.pendingNoteOps,
       }
     })
   }
 
   function applyNoteClaimRejected(event: NoteClaimRejected): void {
-    rollbackNote(event.note_id)
+    rollbackPendingOp(event.note_id)
   }
 
   function applyNoteRelease(event: NoteReleaseOut): void {
@@ -499,17 +562,19 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
       if (current === undefined) return s
       const claims = current.claims.filter((p) => p !== event.participant_id)
       const pending = s.pendingNoteOps[event.note_id]
+      // Mismo bug que en applyNoteClaim: sin comparar participant_id, la suelta de
+      // otra persona podía limpiar mi propio pending.
+      const isMine = pending?.kind === 'release' && event.participant_id === s.me?.participantId
       return {
         ...s,
         notes: { ...s.notes, [event.note_id]: { ...current, taken_count: event.taken_count, claims } },
-        pendingNoteOps:
-          pending?.kind === 'release' ? omit(s.pendingNoteOps, event.note_id) : s.pendingNoteOps,
+        pendingNoteOps: isMine ? omit(s.pendingNoteOps, event.note_id) : s.pendingNoteOps,
       }
     })
   }
 
   function applyNoteReleaseRejected(event: NoteReleaseRejected): void {
-    rollbackNote(event.note_id)
+    rollbackPendingOp(event.note_id)
   }
 
   function applyReactionToggle(event: ReactionToggleOut): void {
@@ -527,11 +592,14 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
             (r) => !(r.participant_id === event.participant_id && r.emoji === event.emoji),
           )
       const pending = s.pendingNoteOps[event.note_id]
+      // Mismo bug que en applyNoteClaim/applyNoteRelease: cualquiera reacciona a
+      // cualquier nota (sin autoría), así que este evento puede ser la reacción de
+      // otra persona a la misma nota donde yo tengo un toggle propio en vuelo.
+      const isMine = pending?.kind === 'reaction' && event.participant_id === s.me?.participantId
       return {
         ...s,
         notes: { ...s.notes, [event.note_id]: { ...current, reactions } },
-        pendingNoteOps:
-          pending?.kind === 'reaction' ? omit(s.pendingNoteOps, event.note_id) : s.pendingNoteOps,
+        pendingNoteOps: isMine ? omit(s.pendingNoteOps, event.note_id) : s.pendingNoteOps,
       }
     })
   }
@@ -553,7 +621,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
   function applyError(event: ErrorEvent): void {
     // Sin note_id no hay a qué nota revertir (chat, fondo de sala: ver
     // docstring de sendChatMessage más arriba).
-    if (event.note_id !== null) rollbackNote(event.note_id)
+    if (event.note_id !== null) rollbackPendingOp(event.note_id)
   }
 
   function applyPresenceCursor(event: PresenceCursorOut): void {

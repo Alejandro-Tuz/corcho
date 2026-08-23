@@ -54,19 +54,41 @@ import type { ConnectionStatus } from '../realtime/socket'
  * revierte a un estado optimista-pero-no-confirmado en vez de al último real -se
  * autocorrige con el próximo evento real que llegue-. Cubrir esto con una cola de
  * deshacer por nota es la complejidad que no compensa en tres días para un cruce así
- * de infrecuente (mismo criterio ya aceptado para dos ediciones seguidas).
+ * de infrecuente.
  *
- * `restore`: el valor de `notes[id]` justo antes de esta mutación optimista -es decir,
- * lo último que el store creía cierto en ese instante-, no un valor capturado antes.
- * Para `note.move` en particular esto importa: `restore` se toma al soltar el
- * arrastre, no al agarrar la nota, porque el store pudo haber recibido una
- * confirmación más reciente (de otra pestaña propia, por ejemplo) mientras el
- * arrastre -que es puramente local hasta soltar, ver `features/notes`- estaba en
- * curso. Revertir a la posición de drag-start ignoraría esa actualización más nueva.
+ * Dos bugs reales encontrados con dos pestañas en carrera de verdad por el mismo
+ * cupo, y por qué `claim`/`release` no llevan datos que optimistamente muten
+ * `notes[id]` en absoluto (a diferencia de `update`/`move`/`reaction`):
+ *
+ * 1. Con un `restore` de la nota entera, un rechazo la PISABA con esa foto vieja -y
+ *    un `taken_count`/`claims` que mientras tanto se actualizó de verdad, porque la
+ *    OTRA persona sí ganó el cupo, se perdía en el pisado.
+ * 2. Cambiar a "deshacer relativo al estado actual" (restar mi propio aporte en vez
+ *    de restaurar una foto) tampoco alcanzaba: `taken_count` es un contador
+ *    COMPARTIDO que la confirmación de OTRA persona ya deja en su valor
+ *    autoritativo mientras la mía sigue pendiente, así que mi resta relativa
+ *    terminaba descontando de un número que mi propio incremento optimista nunca
+ *    había llegado a tocar -quedaba mal para cualquiera de los dos lados de la
+ *    carrera según el orden de llegada-.
+ *
+ * La salida que sí es robusta: `claim`/`release` no tocan `notes[id]` hasta que
+ * llega la confirmación -`pending` solo deshabilita el botón mientras se espera-.
+ * El número solo se mueve una vez, cuando el servidor lo confirma, así que no hay
+ * nada que mezclar ni que deshacer. `reaction` no tiene este problema -no hay un
+ * contador agregado, cada entrada de `reactions` es independiente- así que sigue
+ * optimista, deshaciendo relativo al estado actual (opción 2, que para reacciones sí
+ * es correcta). `update`/`move` necesitan una foto -no hay forma de "deshacer" un
+ * cambio de texto o posición sin saber cuál era el anterior-, acotada a los campos
+ * que cada una toca: son campos exclusivos del autor, nadie más los toca a la vez,
+ * así que no arrastran el mismo riesgo que un contador compartido.
  */
 export type PendingNoteOp =
   | { kind: 'create' }
-  | { kind: 'update' | 'move' | 'claim' | 'release' | 'reaction'; restore: NoteState }
+  | { kind: 'update'; restore: { text: string; color: NoteColor } }
+  | { kind: 'move'; restore: { position_x: number; position_y: number; status: NoteStatus } }
+  | { kind: 'claim' }
+  | { kind: 'release' }
+  | { kind: 'reaction'; emoji: Reaction }
   | { kind: 'delete' }
 
 export interface CursorPresence {
