@@ -425,6 +425,20 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
       const current = s.notes[event.id]
       if (current === undefined) return s
       const pending = s.pendingNoteOps[event.id]
+
+      // presence.dragging no tiene un "stop" propio en el protocolo (docstring de
+      // protocol.ts): se limpia acá, cuando llega el note.move que el que arrastraba
+      // manda SIEMPRE al soltar. NoteMoveOut no trae participant_id -no hace falta,
+      // solo el autor puede mover una nota, así que el fantasma a limpiar es siempre
+      // el de `current.author_id`-. Se compara también `noteId` por las dudas: si ese
+      // participante ya está arrastrando otra cosa para cuando llega este evento, no
+      // hay que tocarle esa entrada.
+      const draggingEntry = s.presence.dragging[current.author_id]
+      const dragging =
+        draggingEntry !== undefined && draggingEntry.noteId === event.id
+          ? omit(s.presence.dragging, current.author_id)
+          : s.presence.dragging
+
       return {
         ...s,
         notes: {
@@ -437,9 +451,18 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
           },
         },
         pendingNoteOps: pending?.kind === 'move' ? omit(s.pendingNoteOps, event.id) : s.pendingNoteOps,
+        presence: { ...s.presence, dragging },
       }
     })
   }
+  // Hueco conocido, sin blindar a propósito (mismo criterio que move_note en el
+  // backend): si ese note.move es RECHAZADO en vez de confirmado, el rechazo
+  // (`error`) llega solo a quien arrastraba, nunca se difunde -así que el resto de
+  // la sala nunca se entera y el fantasma queda pegado en la última posición
+  // reportada. Se autocorrige solo con el próximo arrastre real de esa persona, o
+  // con su próxima desconexión (`presence.left` ya limpia cualquier fantasma). Caso
+  // raro -depende de que otra pestaña propia borre la nota a mitad del arrastre-, no
+  // vale la pena más máquina para esto en tres días.
 
   function applyNoteDelete(event: NoteDeleteOut): void {
     setState((s) => ({

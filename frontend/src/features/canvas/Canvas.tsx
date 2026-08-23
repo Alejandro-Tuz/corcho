@@ -1,25 +1,40 @@
 /**
- * El lienzo: fondo de la sala + las notas encima. Bloque 1 (CLAUDE.md, día 2): crear
- * y arrastrar. Sin columnas todavía (bloque 3) -por eso toda nota nueva arranca en
- * `status: 'blocked'` fijo, sin selector: no hay dónde mostrar ese dato todavía-, sin
- * cupos interactivos (bloque 2: hoy la capacidad se ve pero no se toma/suelta), sin
- * cursores ni nota fantasma de otros participantes (bloque 2 también).
+ * El lienzo: fondo de la sala + las notas encima + -bloque 2- los cursores de los
+ * demás. Sin columnas todavía (bloque 3) -por eso toda nota nueva arranca en
+ * `status: 'blocked'` fijo, sin selector: no hay dónde mostrar ese dato todavía-.
  *
  * Creación por `window.prompt()`, no un formulario: es la interacción más fea posible
  * a propósito -"funcionalidad primero, diseño después", CLAUDE.md- y evita construir
  * un modal para algo que el pulido del día 3 va a rehacer de cero.
+ *
+ * El cursor propio se manda desde acá (`onPointerMove` sobre el lienzo entero, no
+ * por nota) porque es donde tiene sentido la posición relativa: `presence.cursor`
+ * viaja en coordenadas del lienzo, iguales a `position_x/y` de una nota, así que el
+ * mismo origen (la esquina del div del lienzo) sirve para las dos cosas.
  */
 
+import { useMemo, useRef } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
 import { sortNotesByCreation } from '../../store/selectors'
+import { throttle } from '../../realtime/throttle'
 import { Note } from '../notes/Note'
+import { RemoteCursors } from '../presence/RemoteCursors'
 import { BACKGROUND_COLORS } from './backgroundColor'
+
+const CURSOR_BROADCAST_INTERVAL_MS = 50
 
 export function Canvas() {
   const connectionStatus = useRoom((s) => s.connectionStatus)
   const background = useRoom((s) => s.background)
   const noteIds = useRoom((s) => sortNotesByCreation(s.notes))
   const actions = useRoomActions()
+
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const throttledSendCursor = useMemo(
+    () => throttle(actions.sendCursor, CURSOR_BROADCAST_INTERVAL_MS),
+    [actions],
+  )
 
   if (connectionStatus === 'room_not_found') {
     return (
@@ -60,6 +75,12 @@ export function Canvas() {
     })
   }
 
+  function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>): void {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (rect === undefined) return
+    throttledSendCursor(e.clientX - rect.left, e.clientY - rect.top)
+  }
+
   return (
     <div>
       <div style={{ padding: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -73,6 +94,8 @@ export function Canvas() {
       </div>
 
       <div
+        ref={canvasRef}
+        onPointerMove={handlePointerMove}
         style={{
           position: 'relative',
           width: '100%',
@@ -85,6 +108,7 @@ export function Canvas() {
         {noteIds.map((id) => (
           <Note key={id} noteId={id} />
         ))}
+        <RemoteCursors />
       </div>
     </div>
   )
