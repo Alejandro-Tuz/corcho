@@ -146,6 +146,12 @@ Windows.
 El daemon no arranca solo: tras reiniciar Windows hay que ejecutar
 `wsl -e sudo service docker start`.
 
+**WSL2 apaga su máquina virtual cuando no queda ninguna sesión abierta**, y se lleva los
+contenedores con ella (los logs muestran `received fast shutdown request` y un ciclo de
+reinicios). Dejar una pestaña con `wsl` abierta durante toda la sesión de trabajo.
+Síntoma: `pytest` se cuelga sesenta segundos en la primera conexión en vez de fallar
+rápido.
+
 **Puertos:** Postgres está publicado en el **5433** del host, no el 5432, porque hay otro
 PostgreSQL ocupando el estándar en esta máquina. Dentro del contenedor sigue siendo 5432.
 Redis sí usa el 6379 estándar.

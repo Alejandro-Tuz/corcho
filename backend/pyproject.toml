@@ -27,6 +27,12 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.flake8-bugbear]
+# B008 ("no llamar a una función en un default de argumento") no aplica a
+# `Depends`/`Query`/etc.: es el patrón estándar de FastAPI para declarar
+# dependencias, no una llamada costosa reevaluada en cada import.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path", "fastapi.Body"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

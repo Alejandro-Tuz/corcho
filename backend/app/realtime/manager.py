@@ -39,13 +39,23 @@ class ConnectionManager:
         return is_first
 
     def disconnect(self, room: str, participant_id: uuid.UUID, websocket: WebSocket) -> bool:
-        """Da de baja el socket. True si era el último -transición real a
-        "desconectado"-. False si le quedan otras pestañas, o si el socket ya no
-        estaba registrado (llamada duplicada: idempotente, no revienta)."""
-        sockets = self._rooms.get(room, {}).get(participant_id)
-        if sockets is None or websocket not in sockets:
+        """Da de baja el socket. True si esta llamada deja a la persona sin ningún
+        socket vivo en la sala -la transición real a "desconectado"-. False si le
+        quedan otras pestañas, o si el participante ya no está en el mapa (llamada
+        duplicada, o `broadcast()` ya encontró este mismo socket muerto al intentar
+        enviarle -ver esa función-: en ningún caso hay algo más que desconectar).
+
+        A propósito NO se exige que `websocket` siga presente en el set antes de
+        descartarlo (`discard` es un no-op si ya no está): el único idempotente real
+        es "¿sigue el participante en el mapa?", no "¿seguía este socket puntual?".
+        Si se exigiera lo segundo, un socket que `broadcast()` ya limpió oportunistamente
+        haría que esta llamada devolviera False por las razones equivocadas, y la
+        persona quedaría fantasma -conectada para siempre a los ojos de la sala-."""
+        participants = self._rooms.get(room)
+        if participants is None or participant_id not in participants:
             return False
 
+        sockets = participants[participant_id]
         sockets.discard(websocket)
         is_last = len(sockets) == 0
         if is_last:
@@ -88,6 +98,13 @@ class ConnectionManager:
                         room,
                         participant_id,
                     )
+                    # Solo se saca ESTE socket del set. A propósito no se llama acá a
+                    # `_forget_participant` aunque el set quede vacío: decidir la
+                    # transición a "desconectado" (disconnected_at, presence.left) es
+                    # exclusivo de `disconnect()`, para que no importe qué tarea de
+                    # asyncio nota primero que el socket está muerto -la del dueño en
+                    # su propio receive_text(), o esta misma en medio de un broadcast
+                    # ajeno-. Si acá se "olvidara" al participante, el `disconnect()`
+                    # legítimo que llega después ya no lo encontraría en el mapa y la
+                    # persona quedaría fantasma: "conectada" para siempre en la sala.
                     sockets.discard(websocket)
-                    if not sockets:
-                        self._forget_participant(room, participant_id)

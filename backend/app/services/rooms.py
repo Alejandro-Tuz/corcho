@@ -12,10 +12,10 @@ import uuid
 from enum import Enum, auto
 from typing import NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.constants import Avatar, ParticipantColor
+from app.core.constants import Avatar, Background, ParticipantColor
 from app.core.ids import new_room_slug
 from app.models.note import Note
 from app.models.participant import Participant
@@ -92,6 +92,40 @@ def join_room(
     session.add(participant)
     session.flush()
     return JoinResult(JoinOutcome.CREATED, _to_participant_state(participant))
+
+
+def mark_disconnected(session: Session, participant_id: uuid.UUID) -> None:
+    """Contraparte de `join_room`: se llama solo cuando `manager.disconnect()` ya
+    confirmó que este fue el último socket de esta persona en la sala -la transición
+    real a "desconectado" (invariante de multi-pestaña, CLAUDE.md). Sin resultado
+    tipado que distinguir, a diferencia de `join_room`: quien llama ya sabe que hubo
+    una transición real, acá solo se persiste. `func.now()` en vez de un timestamp de
+    Python, mismo criterio que `connected_at` (server_default): el reloj de la verdad
+    es el de Postgres."""
+    participant = session.get(Participant, participant_id)
+    if participant is None:
+        return  # no debería pasar: participant_id vino de una conexión ya identificada
+    participant.disconnected_at = func.now()
+    session.flush()
+
+
+class BackgroundOutcome(Enum):
+    ROOM_NOT_FOUND = auto()
+    OK = auto()
+
+
+def set_background(session: Session, room_slug: str, background: Background) -> BackgroundOutcome:
+    """UPDATE directo -no `session.get` + mutar-: cambiar una sola columna no
+    necesita traer la fila entera a Python. `rowcount` alcanza para distinguir sala
+    inexistente de éxito: no hace falta SAVEPOINT, no hay una carrera real que cubrir
+    acá -el peor caso concurrente es "el último que escribe gana", aceptable para el
+    fondo del lienzo-."""
+    result = session.execute(
+        update(Room).where(Room.slug == room_slug).values(background=background)
+    )
+    if result.rowcount == 0:
+        return BackgroundOutcome.ROOM_NOT_FOUND
+    return BackgroundOutcome.OK
 
 
 def get_snapshot(session: Session, room_slug: str) -> RoomSnapshot | None:
