@@ -15,7 +15,9 @@ from app.models import *  # noqa: E402,F401,F403
 config = context.config
 config.set_main_option(
     "sqlalchemy.url",
-    os.environ.get("DATABASE_URL", "postgresql+psycopg://corcho:corcho_dev@localhost:5433/corcho"),
+    # Sin fallback: si falta DATABASE_URL, reventar acá es más barato que migrar
+    # calladamente contra la base equivocada (ver convención en CLAUDE.md).
+    os.environ["DATABASE_URL"],
 )
 
 if config.config_file_name is not None:

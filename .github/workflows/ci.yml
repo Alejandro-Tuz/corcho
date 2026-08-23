@@ -52,6 +52,9 @@ jobs:
       - name: Instalar dependencias
         run: pip install -e ".[dev]"
 
+      - name: Migraciones
+        run: alembic upgrade head
+
       - name: Ruff
         run: |
           ruff check .

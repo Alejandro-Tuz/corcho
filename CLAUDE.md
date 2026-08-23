@@ -22,15 +22,38 @@ bien la existente.
   solo.
 - `app/core/ids.py`: slug de sala de 10 caracteres, alfabeto de 32 símbolos sin 0/O ni
   1/I, generado con `secrets`.
+- `app/core/constants.py`: catálogos de `color`/`avatar`/`background`/`reaction`, un
+  `Literal` derivado de una única tupla por catálogo (`Literal[*TUPLA]`). Fondos son
+  colores sutiles (hueso, gris cálido, salvia apagado, azul niebla, uno oscuro), no
+  patrones: un color se nota a distancia en la otra pantalla, un patrón no.
+- `realtime/protocol.py` + `frontend/src/realtime/protocol.ts`: el contrato completo.
+  Envelope plano, mismo `type` para el mensaje del cliente y la confirmación del
+  servidor pero modelos distintos (`*In` nunca lleva `participant_id`/`author_id`,
+  salvo `room.join` que es quien establece esa identidad). Rechazos tipados para
+  `note.claim`/`note.release` (carrera esperable); autoría de `note.update`/`note.move`
+  cae en `error` genérico (solo alcanzable por bug o manipulación, no por la UI). Cuatro
+  eventos efímeros (`presence.cursor`, `presence.dragging`, `presence.drafting`,
+  `chat.typing`) marcados con el mixin `Ephemeral` + `EPHEMERAL_TYPES`, no se persisten.
+  `Event` base con `extra="forbid"`.
+- `app/db/session.py`: engine + `SessionLocal`, lee `DATABASE_URL` sin fallback (falla
+  ruidoso si falta la variable).
+- `services/claims.py` + `tests/test_claims.py`: tomar y soltar cupos, la única
+  concurrencia real del proyecto. `take`/`release` no controlan el ciclo de vida de la
+  sesión (sin `commit`/`rollback` de la transacción externa) y usan SAVEPOINT
+  (`begin_nested`) para deshacer solo su propia escritura cuando hace falta. Devuelven
+  un resultado tipado (`ClaimOutcome`/`ReleaseOutcome`) que distingue "tomó un cupo
+  nuevo" de "ya lo tenía" (idempotente, no hay que difundir `note.claim`) y "nota
+  inexistente" de "sin cupo". Bug real encontrado y corregido en el camino: con
+  psycopg3, `rowcount` de un `INSERT ... ON CONFLICT DO NOTHING` da `-1` siempre, no
+  sirve para detectar el conflicto — hay que usar `RETURNING`. 8 tests en verde contra
+  Postgres real, incluida la carrera con dos conexiones y `threading.Barrier(2)`.
 
 **Siguiente:**
 
-1. `realtime/protocol.py` + `frontend/src/realtime/protocol.ts` (mismo commit).
-2. `realtime/manager.py` — ConnectionManager por sala.
-3. `realtime/broker.py` — puente Redis pub/sub.
-4. `services/claims.py` + `tests/test_claims.py`.
-5. `services/notes.py`, `services/chat.py`, `services/rooms.py`.
-6. `core/config.py`, `db/session.py`, `api/v1/`, `main.py`.
+1. `realtime/manager.py` — ConnectionManager por sala.
+2. `realtime/broker.py` — puente Redis pub/sub.
+3. `services/notes.py`, `services/chat.py`, `services/rooms.py`.
+4. `core/config.py`, `api/v1/`, `main.py`, `realtime/handlers.py`, `realtime/endpoint.py`.
 
 El día 1 cierra con dos pestañas sincronizadas, aunque el HTML sea feo.
 
@@ -311,6 +334,12 @@ que apretar:
   **todo** `backend/`, no solo sobre los archivos modificados. Incluye `alembic/`.
 - Un commit por unidad de trabajo coherente. `pytest` y `ruff check` en verde antes de
   cada commit.
+- Nada de valores por defecto para configuración de infraestructura. `DATABASE_URL`,
+  `REDIS_URL` y similares se leen con `os.environ[...]`, no con `.get(..., fallback)`. Un
+  fallback convierte "falta configuración" en "conectado a la base equivocada", que es un
+  fallo mucho más caro de diagnosticar. (Encontrado en CI: un fallback en `alembic/env.py`
+  conectó silenciosamente contra una base que no existía en el runner, en vez de fallar en
+  el momento en que faltaba `DATABASE_URL`.)
 
 ## Flujo de trabajo con Claude
 
