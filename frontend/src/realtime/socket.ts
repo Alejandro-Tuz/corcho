@@ -42,6 +42,7 @@
 import type { ClientEvent, Ping, RoomJoinIn, ServerEvent } from './protocol'
 import { EPHEMERAL_EVENT_TYPES } from './protocol'
 import type { StoredIdentity } from '../lib/identity'
+import { wsBaseUrl } from '../lib/backendUrl'
 
 type EphemeralType = (typeof EPHEMERAL_EVENT_TYPES)[number]
 
@@ -233,14 +234,7 @@ export function connectToRoom(room: string, identity: StoredIdentity): RoomSocke
 }
 
 function wsUrl(room: string): string {
-  // VITE_WS_URL es el escape hatch para producción (Render): wiring pendiente de
-  // cuándo se aborde el deploy. El default asume el backend en el puerto 8000 del
-  // mismo host -sirve sin configuración para `npm run dev` contra
-  // `uvicorn app.main:app --reload` local, que es el único entorno que importa hoy.
-  const configured = import.meta.env.VITE_WS_URL as string | undefined
-  if (configured !== undefined) return `${configured}/ws/${room}`
-  const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${scheme}://${window.location.hostname}:8000/ws/${room}`
+  return `${wsBaseUrl()}/ws/${room}`
 }
 
 /**
