@@ -17,9 +17,7 @@ if TYPE_CHECKING:
 class ChatMessage(Base):
     __tablename__ = "chat_messages"
     __table_args__ = (
-        CheckConstraint(
-            "char_length(text) BETWEEN 1 AND 1000", name="ck_chat_messages_text_length"
-        ),
+        CheckConstraint("char_length(text) BETWEEN 1 AND 1000", name="text_length"),
         Index("ix_chat_messages_room_created", "room_id", "created_at"),
     )
 

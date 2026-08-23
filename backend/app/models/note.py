@@ -36,13 +36,13 @@ class Note(Base):
         CheckConstraint(
             "(kind = 'own' AND capacity IS NULL) OR "
             "(kind = 'shared' AND capacity IS NOT NULL AND capacity > 0)",
-            name="ck_notes_kind_capacity",
+            name="kind_capacity",
         ),
-        CheckConstraint("taken_count >= 0", name="ck_notes_taken_count_non_negative"),
+        CheckConstraint("taken_count >= 0", name="taken_count_non_negative"),
         CheckConstraint(
-            "capacity IS NULL OR taken_count <= capacity", name="ck_notes_taken_count_le_capacity"
+            "capacity IS NULL OR taken_count <= capacity", name="taken_count_le_capacity"
         ),
-        CheckConstraint("char_length(text) <= 500", name="ck_notes_text_length"),
+        CheckConstraint("char_length(text) <= 500", name="text_length"),
         Index("ix_notes_room_id_status", "room_id", "status"),
     )
 
