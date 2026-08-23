@@ -174,6 +174,10 @@ No negociables. Si un cambio los rompe, el cambio está mal.
    corrige cuando llega la confirmación del servidor. El caso de cupo lleno mientras se
    arrastra tiene que rebotar, no quedar en estado inconsistente.
 
+8. **Los participantes nunca se borran.** Al desconectar solo se marca
+   `disconnected_at`. Su fila sostiene notas, cupos, reacciones y mensajes por FK con
+   CASCADE: borrarla se lleva por delante el trabajo de esa persona.
+
 ## Convenciones
 
 - Código, nombres de archivo, variables e identificadores del protocolo **en inglés**.
@@ -213,3 +217,9 @@ login con contraseña, audio o video, selector de color libre para el fondo.
 Postgres está publicado en el puerto **5433** del host (no el 5432), porque hay otro
 PostgreSQL ocupando el estándar en esta máquina. Dentro del contenedor sigue siendo 5432.
 Redis sí usa el 6379 estándar.
+
+## Pulido previsto (día 3)
+
+- Al borrar una nota: animación de caída, como si se le quitara el pin. Ocurre en todas
+  las pantallas al llegar `note.deleted`. Se elimina del store al terminar la animación,
+  no al recibir el evento. `pointer-events: none` mientras cae.
