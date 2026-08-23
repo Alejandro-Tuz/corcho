@@ -223,3 +223,6 @@ Redis sí usa el 6379 estándar.
 - Al borrar una nota: animación de caída, como si se le quitara el pin. Ocurre en todas
   las pantallas al llegar `note.deleted`. Se elimina del store al terminar la animación,
   no al recibir el evento. `pointer-events: none` mientras cae.
+
+  - Antes de dar por terminada una tarea: `ruff check .` y `ruff format --check .` sobre
+  todo `backend/`, no solo sobre los archivos modificados.
