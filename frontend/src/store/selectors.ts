@@ -1,0 +1,55 @@
+/**
+ * Derivados del estado que no se guardan como tal -para que ningún cliente pueda
+ * quedar desincronizado del de otro por el orden de llegada de los eventos, y para
+ * que no exista un segundo lugar donde se pueda desincronizar de `notes`.
+ */
+
+import type { NoteState } from '../realtime/protocol'
+
+/**
+ * Orden de notas: `(created_at, id)` ascendente, no orden de llegada.
+ *
+ * `created_at` porque es el único dato con sentido de "cuándo apareció esta nota" que
+ * ya viaja en el wire y vale lo mismo para todos los clientes -a diferencia del orden
+ * en que a CADA cliente le llegó su `note.create` (broadcast en vivo para unos,
+ * adentro de `room.snapshot` al reconectar para otros; y el propio `room.snapshot` no
+ * garantiza ningún orden particular en `notes`, es una consulta sin `ORDER BY`
+ * explícito del lado del backend).
+ *
+ * `id` como desempate determinista para el caso ya documentado en CLAUDE.md
+ * (`chat.list_messages`, misma limitación aplicable acá): Postgres congela `now()`
+ * dentro de una misma transacción, así que varias notas creadas sin commitear entre
+ * medio -`scripts/seed.py`- pueden compartir `created_at` exacto. No pasa en el uso
+ * real vía WS (cada `note.create` es su propia transacción).
+ *
+ * Se usa también como orden de apilamiento visual (`features/canvas`): la nota más
+ * nueva se dibuja arriba. Mover una nota NO cambia su lugar acá -el orden depende
+ * solo de `created_at`, nunca de `updated_at`- así que arrastrar una nota vieja no la
+ * "trae al frente".
+ *
+ * Comparación por string, sin parsear a `Date`: los timestamps llegan en ISO 8601 con
+ * offset UTC y precisión constante (los pone Postgres vía pydantic), formato que
+ * ordena igual lexicográfica que cronológicamente.
+ *
+ * Memoizado por identidad de `notes`: como el store nunca muta un `Record` en el
+ * lugar (siempre lo reemplaza al cambiar algo), la única vez que hace falta
+ * recalcular es cuando `notes` cambió de verdad -no en cada re-render por un cursor
+ * moviéndose-. `WeakMap` en vez de un cache con límite manual: cuando un `notes`
+ * viejo deja de estar referenciado en ningún lado, su entrada se libera sola.
+ */
+const orderCache = new WeakMap<Record<string, NoteState>, string[]>()
+
+export function sortNotesByCreation(notes: Record<string, NoteState>): string[] {
+  const cached = orderCache.get(notes)
+  if (cached !== undefined) return cached
+
+  const sorted = Object.values(notes)
+    .sort((a, b) => {
+      if (a.created_at !== b.created_at) return a.created_at < b.created_at ? -1 : 1
+      return a.id < b.id ? -1 : 1
+    })
+    .map((note) => note.id)
+
+  orderCache.set(notes, sorted)
+  return sorted
+}
