@@ -54,7 +54,9 @@ export type Avatar =
   | 'whale'
   | 'hedgehog'
   | 'octopus'
-export type Background = 'grid' | 'dots' | 'plain' | 'graph'
+// Colores sutiles, no patrones: hueso, gris cálido, salvia apagado, azul niebla, y uno
+// oscuro para contraste (espejo de BACKGROUNDS en constants.py).
+export type Background = 'bone' | 'warm_gray' | 'sage' | 'fog_blue' | 'charcoal'
 export type Reaction = '✓' | '👀' | '🔥'
 
 export type NoteKind = 'own' | 'shared'

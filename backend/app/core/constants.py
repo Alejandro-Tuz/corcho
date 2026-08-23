@@ -30,8 +30,10 @@ ParticipantColor = Literal[*PARTICIPANT_COLORS]
 AVATARS: Final = ("fox", "penguin", "turtle", "owl", "bee", "whale", "hedgehog", "octopus")
 Avatar = Literal[*AVATARS]
 
-# Fondos del lienzo: presets sutiles, sin selector de color libre (fuera de alcance).
-BACKGROUNDS: Final = ("grid", "dots", "plain", "graph")
+# Fondos del lienzo: colores sutiles, no patrones -un color se nota a distancia cuando
+# cambia en la otra pantalla, un patrón no-, sin selector libre (fuera de alcance).
+# hueso, gris cálido, salvia apagado, azul niebla, y uno oscuro para contraste.
+BACKGROUNDS: Final = ("bone", "warm_gray", "sage", "fog_blue", "charcoal")
 Background = Literal[*BACKGROUNDS]
 
 # Reacciones: fijas por el alcance. No es un catálogo visual, pero el mismo mecanismo
