@@ -47,13 +47,35 @@ bien la existente.
   psycopg3, `rowcount` de un `INSERT ... ON CONFLICT DO NOTHING` da `-1` siempre, no
   sirve para detectar el conflicto — hay que usar `RETURNING`. 8 tests en verde contra
   Postgres real, incluida la carrera con dos conexiones y `threading.Barrier(2)`.
+- CI corregido: `alembic/env.py` tenía el mismo fallback de `DATABASE_URL` que ya se
+  había quitado de `session.py`, y el job de backend no migraba antes de `pytest`. Paso
+  `Migraciones` (`alembic upgrade head`) agregado al workflow. Verificado en local
+  simulando el runner: `.env` apartado, `DATABASE_URL` solo como variable de sesión,
+  contra una base vacía.
+- `core/config.py`: `Settings` (pydantic-settings) con `database_url`/`redis_url`
+  obligatorios, sin default — revienta al arrancar si falta cualquiera de las dos.
+  `db/session.py` migrado para leer de acá en vez de `os.environ` directo, tal como
+  anticipaba su propio docstring.
+- `core/redis.py`: pool de conexión (`ConnectionPool`, `decode_responses=True`), nada
+  más.
+- `realtime/manager.py`: `ConnectionManager`, sockets locales de este worker en
+  memoria (`dict[room, dict[participant_id, set[WebSocket]]]`). `connect`/`disconnect`
+  devuelven si hubo transición real (primer/último socket de esa persona en esa sala,
+  decisión de multi-pestaña); `broadcast` descarta oportunistamente un socket que
+  falla al enviar, sin interrumpir el envío a los demás.
+- `realtime/broker.py`: `RedisBroker`, puente pub/sub. `publish()` es el único camino
+  desde `handlers.py` hacia los sockets: entrega local inmediata más publicación en
+  Redis (en ese orden, documentado en el docstring). Una sola tarea de fondo con
+  `PSUBSCRIBE room:*`, filtra por id de instancia de origen para no duplicar entregas
+  locales, y no muere ante un mensaje corrupto (`try/except` por iteración del bucle,
+  con log). Verificado con un smoke test de dos workers contra Redis real: entrega
+  local, entrega vía Redis, y un mensaje corrupto de por medio que no tumbó la tarea.
 
 **Siguiente:**
 
-1. `realtime/manager.py` — ConnectionManager por sala.
-2. `realtime/broker.py` — puente Redis pub/sub.
-3. `services/notes.py`, `services/chat.py`, `services/rooms.py`.
-4. `core/config.py`, `api/v1/`, `main.py`, `realtime/handlers.py`, `realtime/endpoint.py`.
+1. `services/notes.py`, `services/chat.py`, `services/rooms.py`.
+2. `api/v1/`, `main.py` (wiring de `ConnectionManager`/`RedisBroker`/`Settings` en el
+   lifespan), `realtime/handlers.py`, `realtime/endpoint.py`.
 
 El día 1 cierra con dos pestañas sincronizadas, aunque el HTML sea feo.
 
