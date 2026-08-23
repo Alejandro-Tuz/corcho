@@ -70,11 +70,46 @@ bien la existente.
   locales, y no muere ante un mensaje corrupto (`try/except` por iteración del bucle,
   con log). Verificado con un smoke test de dos workers contra Redis real: entrega
   local, entrega vía Redis, y un mensaje corrupto de por medio que no tumbó la tarea.
+- `services/notes.py`, `services/chat.py`, `services/rooms.py`. Mismo criterio que
+  `claims.py`: reciben la `Session`, no la abren, no controlan su ciclo de vida.
+  Desenlaces multi-vía como enums locales (`NoteOutcome`, `JoinOutcome`, etc.); las
+  formas de dato completas (`NoteState`, `ParticipantState`, `ChatMessageState`) se
+  importan de `protocol.py` en vez de duplicarse. `update_note`/`move_note`/
+  `delete_note` validan autoría (solo el autor); sin rechazo propio en el protocolo
+  para eso -cae en `error` genérico, la UI legítima nunca ofrece estos controles sobre
+  una nota ajena-. `notes.toggle_reaction` repitió y resolvió la misma trampa de
+  `rowcount == -1` de `claims.take` (`INSERT ... ON CONFLICT DO NOTHING` + `RETURNING`,
+  documentado en ambos sitios). Bug encontrado y corregido: `rooms.get_snapshot` con
+  `session.get(Room, slug, options=[selectinload...])` no aplicaba bien un
+  `selectinload` encadenado dos niveles (notes -> claims/reactions) y hacía una
+  consulta de claims y otra de reactions *por nota* -N+1 real, verificado con
+  `event.listen` contra Postgres: 14 consultas para 5 notas-. `select(Room).where(...)`
+  sí lo resuelve: 7 consultas fijas, no crecen con el número de notas (verificado con
+  5 y con 15). Bug encontrado y corregido en el modelo: `Room.background` tenía
+  `default="grid"`, valor que ya no es válido desde que `BACKGROUNDS` pasó a colores;
+  corregido a `"bone"` (cambio de código, sin migración). Todo verificado con smoke
+  tests funcionales contra Postgres real -no hay tests permanentes para estos tres
+  servicios todavía, quedan para cuando exista `tests/conftest.py` compartido-.
+
+**Limitación conocida, documentada, no blindada (no compensa en tres días):**
+
+- **`notes.move_note`** tiene la segunda concurrencia real del proyecto, además de los
+  cupos: dos `note.move` para la misma nota -misma persona con dos pestañas, o
+  paquetes reordenados por la red durante un arrastre a alta frecuencia
+  (`presence.dragging`)- pueden aplicarse fuera de orden. Gana el que llega después,
+  aunque corresponda a un instante anterior del arrastre. Sin control de versión de
+  por medio. Peor caso: la nota "salta" un instante a una posición vieja antes de
+  asentarse en la correcta, no pérdida de datos ni estado inconsistente en la base.
+- **`chat.list_messages`** (y por lo tanto `room.snapshot`): Postgres congela `now()`
+  al inicio de la transacción, no por sentencia. Mensajes creados en la misma
+  transacción quedan con `created_at` idéntico y su orden relativo no está
+  garantizado. No pasa en el uso real (cada `chat.message` por WS es su propia
+  transacción), pero sí en scripts que inserten varios mensajes sin commitear entre
+  medio -`scripts/seed.py` tiene que tenerlo presente-.
 
 **Siguiente:**
 
-1. `services/notes.py`, `services/chat.py`, `services/rooms.py`.
-2. `api/v1/`, `main.py` (wiring de `ConnectionManager`/`RedisBroker`/`Settings` en el
+1. `api/v1/`, `main.py` (wiring de `ConnectionManager`/`RedisBroker`/`Settings` en el
    lifespan), `realtime/handlers.py`, `realtime/endpoint.py`.
 
 El día 1 cierra con dos pestañas sincronizadas, aunque el HTML sea feo.

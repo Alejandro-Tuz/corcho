@@ -17,7 +17,10 @@ class Room(Base):
 
     slug: Mapped[str] = mapped_column(String(12), primary_key=True)
     name: Mapped[str | None] = mapped_column(String(80))
-    background: Mapped[str] = mapped_column(String(20), nullable=False, default="grid")
+    # "bone": debe ser uno de los valores de BACKGROUNDS (app/core/constants.py). Sin
+    # CHECK en Postgres a propósito (decisión ya tomada), así que este default no lo
+    # valida la base -si el catálogo cambia, hay que acordarse de este valor también.
+    background: Mapped[str] = mapped_column(String(20), nullable=False, default="bone")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
