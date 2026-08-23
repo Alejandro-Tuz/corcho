@@ -8,6 +8,36 @@ Proyecto de 3 días con demo en vivo. **El pulido no es el acabado del proyecto,
 proyecto.** Ante la duda entre agregar una función o terminar bien una existente, terminar
 bien la existente.
 
+## Estado del proyecto
+
+**Hecho:**
+
+- Estructura del repo, entorno Python, Postgres y Redis verificados de punta a punta.
+- CI en GitHub Actions (ruff + pytest en backend, ESLint + build en frontend), en verde.
+- `app/db/base.py` con `naming_convention` explícita en el `MetaData`.
+- Los 6 modelos SQLAlchemy en `app/models/`, con sus CHECK, enums nativos e índices.
+- Alembic configurado (`alembic.ini`, `env.py`, `script.py.mako`) y migración inicial
+  aplicada. El ciclo `downgrade base` → `upgrade head` corre limpio: el `downgrade()`
+  incluye el `DROP TYPE` explícito de `note_kind` y `note_status`, que Alembic no genera
+  solo.
+- `app/core/ids.py`: slug de sala de 10 caracteres, alfabeto de 32 símbolos sin 0/O ni
+  1/I, generado con `secrets`.
+
+**Siguiente:**
+
+1. `realtime/protocol.py` + `frontend/src/realtime/protocol.ts` (mismo commit).
+2. `realtime/manager.py` — ConnectionManager por sala.
+3. `realtime/broker.py` — puente Redis pub/sub.
+4. `services/claims.py` + `tests/test_claims.py`.
+5. `services/notes.py`, `services/chat.py`, `services/rooms.py`.
+6. `core/config.py`, `db/session.py`, `api/v1/`, `main.py`.
+
+El día 1 cierra con dos pestañas sincronizadas, aunque el HTML sea feo.
+
+**Si el tiempo aprieta, lo primero que sale es el chat.** Es la pieza más cara de lo que
+queda (persistencia, scroll, no leídos, filtro por tarea, typing) y la que menos aporta al
+momento central del demo: una nota moviéndose en dos pantallas a la vez.
+
 ## Stack
 
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy 2.0, Alembic, PostgreSQL 16, Redis 7
@@ -31,10 +61,19 @@ bien la existente.
 
 **Docker corre dentro de WSL2**, no en Windows. El comando `docker` no existe en
 PowerShell; todo va prefijado con `wsl -e`. WSL2 reenvía los puertos a `localhost` de
-Windows, así que el backend conecta a `localhost:5432` y `localhost:6379` con normalidad.
+Windows.
 
 El daemon no arranca solo: tras reiniciar Windows hay que ejecutar
 `wsl -e sudo service docker start`.
+
+**Puertos:** Postgres está publicado en el **5433** del host, no el 5432, porque hay otro
+PostgreSQL ocupando el estándar en esta máquina. Dentro del contenedor sigue siendo 5432.
+Redis sí usa el 6379 estándar.
+
+```
+DATABASE_URL=postgresql+psycopg://corcho:corcho_dev@localhost:5433/corcho
+REDIS_URL=redis://localhost:6379/0
+```
 
 Los volúmenes del compose son **volúmenes nombrados**, nunca rutas montadas desde `C:\`.
 Montar el sistema de archivos de Windows en un contenedor de WSL es lento y Postgres se
@@ -44,75 +83,132 @@ Al sugerir comandos: PowerShell, no bash. Si un comando es de Unix, traducirlo o
 
 ## Estructura
 
+Los archivos marcados con `[x]` ya existen. El resto está pendiente.
+
 ```
 corcho/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py
 │   │   ├── core/
-│   │   │   ├── config.py        Settings con pydantic-settings
-│   │   │   ├── redis.py         pool de conexión, nada más
-│   │   │   └── ids.py           slugs de sala, ids cortos para el QR
+│   │   │   ├── config.py          Settings con pydantic-settings
+│   │   │   ├── redis.py           pool de conexión, nada más
+│   │   │   └── ids.py       [x]   slug de sala para URL/QR
 │   │   ├── api/
 │   │   │   ├── deps.py
 │   │   │   └── v1/
 │   │   │       ├── router.py
-│   │   │       ├── rooms.py     crear sala, unirse, snapshot inicial
+│   │   │       ├── rooms.py       crear sala, unirse, snapshot inicial
 │   │   │       └── health.py
 │   │   ├── realtime/
-│   │   │   ├── protocol.py      EL CONTRATO: envelope + tipos de evento
-│   │   │   ├── endpoint.py      la ruta /ws/{room}
-│   │   │   ├── manager.py       ConnectionManager por sala (sockets locales)
-│   │   │   ├── broker.py        puente Redis pub/sub <-> manager
-│   │   │   └── handlers.py      despacho: tipo de mensaje -> servicio
+│   │   │   ├── protocol.py        EL CONTRATO: envelope + tipos de evento
+│   │   │   ├── endpoint.py        la ruta /ws/{room}
+│   │   │   ├── manager.py         ConnectionManager por sala (sockets locales)
+│   │   │   ├── broker.py          puente Redis pub/sub <-> manager
+│   │   │   └── handlers.py        despacho: tipo de mensaje -> servicio
 │   │   ├── db/
-│   │   │   ├── base.py
-│   │   │   └── session.py
-│   │   ├── models/              SQLAlchemy
-│   │   ├── schemas/             Pydantic, solo entrada/salida REST
+│   │   │   ├── base.py      [x]   Base declarativa + naming_convention
+│   │   │   └── session.py         engine, sessionmaker
+│   │   ├── models/          [x]   los 6 modelos
+│   │   ├── schemas/               Pydantic, solo entrada/salida REST
 │   │   └── services/
 │   │       ├── rooms.py
 │   │       ├── notes.py
-│   │       ├── claims.py        cupos: tomar y soltar
+│   │       ├── claims.py          cupos: tomar y soltar
 │   │       └── chat.py
 │   ├── scripts/
-│   │   ├── seed.py              sala precargada del demo
-│   │   └── theater.py           clientes WS falsos (modo teatro)
-│   ├── alembic/versions/
+│   │   ├── seed.py                sala precargada del demo
+│   │   └── theater.py             clientes WS falsos (modo teatro)
+│   ├── alembic/             [x]   configurado, migración inicial aplicada
 │   ├── tests/
 │   │   ├── conftest.py
 │   │   ├── test_claims.py
 │   │   ├── test_protocol.py
 │   │   └── integration/
-│   ├── pyproject.toml
+│   ├── pyproject.toml       [x]
 │   └── Dockerfile
-├── frontend/
+├── frontend/                [x]   andamiaje de Vite, sin código propio aún
 │   ├── src/
 │   │   ├── main.tsx
-│   │   ├── app/                 providers, router, layout
+│   │   ├── app/                   providers, router, layout
 │   │   ├── realtime/
-│   │   │   ├── protocol.ts      espejo manual de protocol.py
-│   │   │   ├── socket.ts        conexión, backoff, ping, cola de reenvío
-│   │   │   ├── dispatch.ts      evento entrante -> store
-│   │   │   └── throttle.ts      cursores y nota fantasma
-│   │   ├── store/               estado de la sala, en un solo sitio
+│   │   │   ├── protocol.ts        espejo manual de protocol.py
+│   │   │   ├── socket.ts          conexión, backoff, ping, cola de reenvío
+│   │   │   ├── dispatch.ts        evento entrante -> store
+│   │   │   └── throttle.ts        cursores y nota fantasma
+│   │   ├── store/                 estado de la sala, en un solo sitio
 │   │   ├── features/
-│   │   │   ├── onboarding/      nombre + avatar + color
-│   │   │   ├── canvas/          lienzo, fondo, columnas
-│   │   │   ├── notes/           post-it, drag, cupos, reacciones
-│   │   │   ├── presence/        cursores, conectados, notas fantasma
+│   │   │   ├── onboarding/        nombre + avatar + color
+│   │   │   ├── canvas/            lienzo, fondo, columnas
+│   │   │   ├── notes/             post-it, drag, cupos, reacciones
+│   │   │   ├── presence/          cursores, conectados, notas fantasma
 │   │   │   ├── chat/
-│   │   │   └── activity/        franja de eventos recientes
-│   │   ├── components/          UI tonta y reutilizable
+│   │   │   └── activity/          franja de eventos recientes
+│   │   ├── components/            UI tonta y reutilizable
 │   │   ├── hooks/
 │   │   ├── lib/
 │   │   └── styles/
 │   └── public/
-├── .github/workflows/
-├── docker-compose.yml
-├── .env.example
-└── CLAUDE.md
+├── .github/workflows/ci.yml [x]
+├── docker-compose.yml       [x]
+├── .env.example             [x]
+└── CLAUDE.md                [x]
 ```
+
+## Modelo de datos
+
+Seis tablas, ya migradas. Cualquier cambio exige una migración nueva.
+
+- **`rooms`** — `slug` (String, PK, generado por `core/ids.py`), `name` nullable,
+  `background`, `created_at`. Sin `updated_at`, sin soft-delete.
+- **`participants`** — `id` (UUID, PK), `room_id`, `name`, `avatar`, `color`,
+  `connected_at`, `disconnected_at` nullable (NULL = conectado). Índice parcial
+  `ix_participants_room_active` sobre `room_id` WHERE `disconnected_at IS NULL`.
+- **`notes`** — `id` (UUID, PK, generado en cliente para creación optimista), `room_id`,
+  `author_id`, `kind` (enum `own`/`shared`), `status` (enum
+  `blocked`/`in_progress`/`done`), `text`, `color`, `position_x`, `position_y`,
+  `capacity` nullable, `taken_count`, `created_at`, `updated_at` (con `onupdate`).
+- **`note_claims`** — PK compuesta `(note_id, participant_id)`, `claimed_at`. Sin
+  contador propio: es solo la proyección de "quién".
+- **`chat_messages`** — `id`, `room_id` (CASCADE), `note_id` nullable (SET NULL),
+  `author_id`, `text`, `created_at`. Append-only.
+- **`reactions`** — PK compuesta `(note_id, participant_id, emoji)`, `created_at`.
+
+**CHECKs de `notes`:** `kind='own'` implica `capacity IS NULL`; `kind='shared'` implica
+`capacity NOT NULL AND capacity > 0`; `taken_count >= 0`; `taken_count <= capacity`.
+
+Efecto colateral aprovechado: en una nota `own`, `capacity` es NULL, así que
+`taken_count < capacity` nunca es verdadero en Postgres. Una nota propia es
+estructuralmente imposible de reclamar, sin rama de código aparte.
+
+## Decisiones de diseño ya tomadas
+
+No reabrir sin motivo nuevo.
+
+- **Columnas del Kanban:** tres fijas (Bloqueado / En curso / Listo), enum en el código, no
+  tabla. Lo que se persiste es `status` de cada nota.
+- **Posición y columna son independientes.** La nota guarda `status`, `x` e `y`. La columna
+  NO se deriva de la `x`: el ancho depende del tamaño de la ventana y la misma nota
+  aparecería en columnas distintas en cada pantalla. Un arrastre que cruza de columna
+  actualiza posición y status en el mismo evento.
+- **Reacciones:** varias distintas por participante y nota, una por emoji. Repetir el mismo
+  emoji la retira (toggle). En la tarjeta se agrupan por emoji, con contador y quiénes.
+- **Catálogos visuales** (avatar, color, presets de fondo): validados solo con `Literal` en
+  Pydantic, contra un módulo de constantes único. Sin CHECK en Postgres, para poder añadir
+  un color durante el pulido sin migración. Excepción: `kind` y `status` sí son enums
+  nativos, porque son lógica de negocio.
+- **Borrado de notas:** físico, sin `deleted_at`. Cascadean `note_claims` y `reactions`.
+  Los `chat_messages` sobreviven con `note_id = NULL`: un mensaje es una intervención
+  independiente, no un atributo de la nota, y borrar historial en mitad de una
+  conversación es peor que perder una etiqueta.
+- **Reidentificación al reconectar:** el servidor devuelve `participant_id` al unirse, el
+  cliente lo guarda en `localStorage` por sala y lo envía al abrir el socket. Si el id
+  existe y pertenece a esa sala, se reactiva la fila (`disconnected_at` a NULL) en vez de
+  crear un participante nuevo. Sin esto, cada reconexión huerfaniza los cupos y las notas
+  de esa persona. No hay tokens firmados: quien tiene el link ya tiene acceso a todo.
+- **Multi-pestaña:** `disconnected_at` solo se marca cuando se cierra el **último** socket
+  de ese participante. El conteo de sockets vivos va en memoria en `manager.py`. Con más
+  de un worker ese contador tendría que vivir en Redis; con una instancia de Render, no.
 
 ## Comandos
 
@@ -136,6 +232,9 @@ pytest
 pytest tests\test_claims.py -v     # el test que importa
 ruff check .
 ruff format .
+
+# inspeccionar la base
+wsl -e docker compose exec postgres psql -U corcho -d corcho -c "\dt"
 
 # demo
 python scripts\seed.py             # sala precargada
@@ -178,18 +277,38 @@ No negociables. Si un cambio los rompe, el cambio está mal.
    `disconnected_at`. Su fila sostiene notas, cupos, reacciones y mensajes por FK con
    CASCADE: borrarla se lleva por delante el trabajo de esa persona.
 
+## Concurrencia de los cupos
+
+Es la única parte del proyecto con concurrencia real, y donde `tests/test_claims.py` tiene
+que apretar:
+
+- **Tomar:** el `INSERT` en `note_claims` va **antes** del `UPDATE` del contador. Si va
+  después, el doble clic depende de que el rollback deshaga el incremento. Insertando
+  primero, la PK compuesta rechaza el duplicado rápido y limpio.
+- **Soltar:** el decremento debe ser condicional a que el `DELETE` haya afectado a una
+  fila. Dos peticiones seguidas de soltar borran una fila y cero filas; si decrementas sin
+  comprobarlo, `taken_count` baja dos veces y queda por debajo de la realidad.
+- Ambas escrituras van en la misma transacción.
+
 ## Convenciones
 
 - Código, nombres de archivo, variables e identificadores del protocolo **en inglés**.
   Texto visible al usuario, comentarios y commits **en español**.
 - Tipos de evento en `snake_case` con namespace: `note.claim`, `note.release`,
   `presence.cursor`, `chat.message`, `room.background`.
-- Migraciones de Alembic siempre revisadas a mano después del autogenerate.
+- Migraciones de Alembic siempre revisadas a mano después del autogenerate. Comprobar que
+  los CHECK y los índices parciales aparecen en el archivo generado: Alembic a veces omite
+  constraints declarados en `__table_args__`.
+- Los nombres de constraint en los modelos van **sin** prefijo (`name="kind_capacity"`, no
+  `name="ck_notes_kind_capacity"`): la `naming_convention` de `db/base.py` lo antepone, y
+  si se escribe a mano sale duplicado.
 - Nada de `console.log` ni `print` en el código que se commitea.
 - Formato automático: `ruff format` en el backend, Prettier en el frontend. No discutir
   comillas ni comas.
 - Respetar los avisos de `react-hooks/exhaustive-deps`. Con WebSockets y `useEffect`, una
   dependencia faltante es una suscripción duplicada o un socket que no se cierra.
+- Antes de dar por terminada una tarea: `ruff check .` y `ruff format --check .` sobre
+  **todo** `backend/`, no solo sobre los archivos modificados. Incluye `alembic/`.
 - Un commit por unidad de trabajo coherente. `pytest` y `ruff check` en verde antes de
   cada commit.
 
@@ -204,6 +323,8 @@ No negociables. Si un cambio los rompe, el cambio está mal.
 - No refactorizar a organización por feature en el backend. Con seis entidades, no paga.
 - Si algo del alcance parece que no va a caber en el tiempo, decirlo en vez de entregar
   una versión a medias.
+- Para piezas de diseño (protocolo, servicios con concurrencia): mostrar el diseño y
+  esperar revisión antes de escribir código.
 
 ## Fuera de alcance
 
@@ -213,16 +334,12 @@ canales de chat privados por tarea, menciones, toque de atención, historial com
 actividad, edición de texto simultánea (necesitaría CRDTs), subida de fotos de perfil,
 login con contraseña, audio o video, selector de color libre para el fondo.
 
-
-Postgres está publicado en el puerto **5433** del host (no el 5432), porque hay otro
-PostgreSQL ocupando el estándar en esta máquina. Dentro del contenedor sigue siendo 5432.
-Redis sí usa el 6379 estándar.
-
 ## Pulido previsto (día 3)
 
 - Al borrar una nota: animación de caída, como si se le quitara el pin. Ocurre en todas
   las pantallas al llegar `note.deleted`. Se elimina del store al terminar la animación,
   no al recibir el evento. `pointer-events: none` mientras cae.
 
-  - Antes de dar por terminada una tarea: `ruff check .` y `ruff format --check .` sobre
-  todo `backend/`, no solo sobre los archivos modificados.
+  - **Nunca ejecutar comandos de git.** Ni `add`, ni `commit`, ni `push`, ni `checkout`.
+  El control de versiones lo lleva el usuario a mano. Cuando una tarea esté lista, decirlo
+  y parar.
