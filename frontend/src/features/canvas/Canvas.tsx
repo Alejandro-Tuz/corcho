@@ -33,6 +33,10 @@
  * cada decisión) por el mismo motivo: `composerOpen`/`searchQuery` ya viven acá.
  * El hook devuelve el `ref` del campo de búsqueda -lo necesita tanto para
  * enfocarlo (`/`) como para saber si Esc lo debe vaciar.
+ *
+ * Exportar a markdown (`store/exportMarkdown.ts` arma el string, `lib/downloadFile.ts`
+ * dispara la descarga): un botón más de la toolbar, sin estado propio -no hay nada
+ * que recordar entre un export y el siguiente.
  */
 
 import { useMemo, useRef, useState } from 'react'
@@ -43,6 +47,8 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts'
 import { useNotificationSound } from '../../hooks/useNotificationSound'
 import { throttle } from '../../realtime/throttle'
 import { BACKGROUNDS } from '../../lib/constants'
+import { downloadTextFile } from '../../lib/downloadFile'
+import { roomToMarkdown } from '../../store/exportMarkdown'
 import { noteMatchesSearch } from '../../store/selectors'
 import { Activity } from '../activity/Activity'
 import { NoteComposer } from '../notes/NoteComposer'
@@ -75,6 +81,9 @@ export function Canvas() {
   const connectionStatus = useRoom((s) => s.connectionStatus)
   const background = useRoom((s) => s.background)
   const notes = useRoom((s) => s.notes)
+  const slug = useRoom((s) => s.slug)
+  const roomName = useRoom((s) => s.name)
+  const participants = useRoom((s) => s.participants)
   const actions = useRoomActions()
   const { muted, toggleMuted } = useNotificationSound()
 
@@ -117,6 +126,12 @@ export function Canvas() {
     throttledSendCursor(e.clientX - rect.left, e.clientY - rect.top)
   }
 
+  function handleExport(): void {
+    const markdown = roomToMarkdown({ slug, name: roomName, notes, participants })
+    const datePart = new Date().toISOString().slice(0, 10)
+    downloadTextFile(`corcho-${slug ?? 'sala'}-${datePart}.md`, markdown, 'text/markdown;charset=utf-8')
+  }
+
   const noteList = Object.values(notes)
   const matchingNoteCount =
     searchQuery.trim() === ''
@@ -145,6 +160,15 @@ export function Canvas() {
             title="Nota nueva (N)"
           >
             + nota
+          </button>
+
+          <button
+            type="button"
+            className="btn"
+            onClick={handleExport}
+            title="Descargar el tablero como markdown"
+          >
+            exportar
           </button>
 
           <div className="canvas-bg-picker">
