@@ -56,6 +56,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useRoom } from '../app/RoomStoreContext'
+import { isTypingTarget } from '../lib/domFocus'
 
 const DEAD_ZONE_RATIO = 0.3 // 30% arriba y 30% abajo -cursor "cómodo" en el 40% central
 const SCROLL_END_FALLBACK_MS = 800 // bien por encima de cualquier smooth scroll real
@@ -71,12 +72,6 @@ const SCROLL_KEYS = new Set([
   'End',
   ' ',
 ])
-
-function isTypingTarget(el: Element | null): boolean {
-  if (el === null) return false
-  if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return true
-  return el instanceof HTMLElement && el.isContentEditable
-}
 
 export function useFollowScroll(followedParticipantId: string | null, onStop: () => void): void {
   const cursor = useRoom((s) =>

@@ -31,6 +31,7 @@ export function NoteComposer({
   onCreate: (input: { kind: NoteKind; text: string; color: NoteColor; capacity: number | null }) => void
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [kind, setKind] = useState<NoteKind>('own')
   const [text, setText] = useState('')
   const [color, setColor] = useState<NoteColor>(NOTE_COLORS[0])
@@ -39,11 +40,24 @@ export function NoteComposer({
   // `<dialog>` se abre/cierra de forma imperativa (`showModal`/`close`), no hay
   // un atributo declarativo que lo haga -por eso este efecto en vez de un
   // simple `open={open}` en el JSX.
+  //
+  // El foco inicial del textarea se pide acá a mano, con `.focus()`, en vez de
+  // dejarlo en el atributo `autoFocus` de React -bug real encontrado (CLAUDE.md,
+  // "Nuevo, aprobado", atajos de teclado): `autoFocus` enfoca una sola vez, en
+  // el momento en que React inserta el elemento en el DOM, y ese momento es el
+  // primer render de TODA la app -este componente vive siempre montado, `open`
+  // solo alterna `showModal()`/`close()`-, con el `<dialog>` todavía cerrado.
+  // Focar algo dentro de un `<dialog>` cerrado no tiene efecto, así que ese único
+  // intento se perdía y ninguna apertura posterior volvía a intentarlo: ganaba
+  // el foco por default de `showModal()` (el primer elemento enfocable del
+  // formulario, el tab "Propia"). Pidiendo el foco acá, después de
+  // `showModal()`, corre en cada apertura, con el diálogo ya abierto.
   useEffect(() => {
     const dialog = dialogRef.current
     if (dialog === null) return
     if (open && !dialog.open) {
       dialog.showModal()
+      textareaRef.current?.focus()
       setKind('own')
       setText('')
       setColor(NOTE_COLORS[0])
@@ -95,12 +109,12 @@ export function NoteComposer({
         </div>
 
         <textarea
+          ref={textareaRef}
           className="composer-text"
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="¿Qué hay que hacer?"
           maxLength={280}
-          autoFocus
           rows={3}
         />
 

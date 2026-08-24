@@ -28,12 +28,18 @@
  * lugar que sabe qué es "matchear", no dos copias de ese criterio. El scroll de
  * seguir en sí vive en `hooks/useFollowScroll.ts`, invocado acá porque este
  * componente ya tiene `followedParticipantId` a mano.
+ *
+ * Atajos de teclado (`hooks/useKeyboardShortcuts.ts`, ahí el porqué completo de
+ * cada decisión) por el mismo motivo: `composerOpen`/`searchQuery` ya viven acá.
+ * El hook devuelve el `ref` del campo de búsqueda -lo necesita tanto para
+ * enfocarlo (`/`) como para saber si Esc lo debe vaciar.
  */
 
 import { useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
 import { useFollowScroll } from '../../hooks/useFollowScroll'
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts'
 import { useNotificationSound } from '../../hooks/useNotificationSound'
 import { throttle } from '../../realtime/throttle'
 import { BACKGROUNDS } from '../../lib/constants'
@@ -91,6 +97,11 @@ export function Canvas() {
   }
 
   useFollowScroll(followedParticipantId, () => setFollowedParticipantId(null))
+  const searchInputRef = useKeyboardShortcuts({
+    onNewNote: () => setComposerOpen(true),
+    searchQuery,
+    onClearSearch: () => setSearchQuery(''),
+  })
 
   if (connectionStatus === 'room_not_found') {
     return (
@@ -127,7 +138,12 @@ export function Canvas() {
         <div className="canvas-toolbar">
           <span className="canvas-brand">Corcho</span>
 
-          <button type="button" className="btn btn-primary" onClick={() => setComposerOpen(true)}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setComposerOpen(true)}
+            title="Nota nueva (N)"
+          >
             + nota
           </button>
 
@@ -150,9 +166,10 @@ export function Canvas() {
 
           <div className="canvas-search">
             <input
+              ref={searchInputRef}
               type="search"
               className="canvas-search-input"
-              placeholder="Buscar…"
+              placeholder="Buscar… ( / )"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />

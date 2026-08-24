@@ -92,14 +92,28 @@ export function NoteDetail({
   onSave: (text: string) => void
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [draft, setDraft] = useState(note.text)
   const [dirty, setDirty] = useState(false)
   const [newItemText, setNewItemText] = useState('')
 
   // Montado bajo demanda (ver docstring del módulo): se abre una sola vez, al
   // montar, no hay un prop `open` que ida-y-vuelva como en NoteComposer.
+  //
+  // El foco del textarea (`isMine`) se pide acá a mano en vez de dejarlo en su
+  // atributo `autoFocus` -mismo bug que ya se encontró y corrigió en
+  // `NoteComposer.tsx` (CLAUDE.md, "Nuevo, aprobado", atajos de teclado), y por
+  // el mismo motivo aunque este componente SÍ se monta de cero en cada apertura:
+  // el commit de `autoFocus` de React corre al insertar el elemento en el DOM,
+  // que pasa en el mismo commit que este efecto todavía no corrió -el `<dialog>`
+  // sigue cerrado en ese instante-. Focar algo dentro de un `<dialog>` cerrado no
+  // tiene efecto, así que ese intento se perdía igual; ganaba el foco por
+  // default de `showModal()` (el primer elemento enfocable). `textareaRef` es
+  // `null` para quien no es el autor -no hay textarea que enfocar, `.focus()`
+  // sobre `null` es un no-op vía el `?.`.
   useEffect(() => {
     dialogRef.current?.showModal()
+    textareaRef.current?.focus()
   }, [])
 
   // Mientras no hay tecleo propio sin guardar, el draft sigue al texto confirmado
@@ -166,6 +180,7 @@ export function NoteDetail({
 
         {isMine ? (
           <textarea
+            ref={textareaRef}
             className="detail-text"
             value={draft}
             onChange={(e) => {
@@ -176,7 +191,6 @@ export function NoteDetail({
             maxLength={NOTE_TEXT_MAX_LENGTH}
             placeholder="Descripción, contexto, lo que haga falta. Una línea que empiece con - [ ] se vuelve un ítem tildable."
             rows={6}
-            autoFocus
           />
         ) : (
           <p className="detail-text detail-text--readonly">{proseOnly(draft) || 'Sin descripción.'}</p>

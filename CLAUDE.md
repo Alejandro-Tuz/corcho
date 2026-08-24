@@ -427,6 +427,46 @@ agregar una función o terminar bien una existente, terminar bien la existente.
     documento. Un scroll manual (rueda) corta el seguimiento al toque. Cerrar la
     pestaña de la persona seguida corta el seguimiento y hace desaparecer su ícono
     de seguir de la lista -sigue resaltable, ahora "(desconectado)".
+- **Atajos de teclado.** `N` nota nueva, `/` buscar, `Esc` cierra lo que esté
+  abierto. Tercer inquilino de `hooks/` (`useKeyboardShortcuts.ts`).
+  - `N`/`/` se ignoran mientras el foco está en un campo de texto -ahí esas teclas
+    son caracteres, no atajos-, y también mientras haya un `<dialog>` nativo
+    abierto (composer o detalle de una nota) -abrir uno nuevo encima de otro ya
+    abierto no tiene comportamiento definido con `<dialog>` apilado. El chequeo de
+    campo de texto (`isTypingTarget`) se extrajo a `lib/domFocus.ts` -lo usaba
+    primero "seguir a una persona" para el mismo problema con las teclas de
+    scroll, `useFollowScroll.ts` pasó a importarlo de ahí en vez de tener su
+    propia copia.
+  - **`Esc` es al revés a propósito: nunca se ignora por foco** -es justo la tecla
+    que se usa DESDE ADENTRO de lo que se quiere cerrar-. El composer y el
+    detalle de una nota ya se cierran solos con Esc (son `<dialog>` nativo, el
+    navegador ya les da esa tecla gratis); lo único que hace falta acá es el
+    buscador, un `<input>` común sin ese comportamiento nativo. Si hay un
+    `<dialog>` abierto, este handler no toca el buscador -"lo que está abierto"
+    en ese momento es el diálogo, no las dos cosas a la vez-: verificado a mano,
+    un buscador con texto + el composer abierto, un solo Esc cierra el composer
+    y deja la búsqueda intacta; un segundo Esc recién ahí la vacía.
+  - Bug real encontrado en el camino y corregido, en `NoteComposer.tsx`,
+    PREEXISTENTE -no introducido por esto, reproducido también abriendo con el
+    botón "+ nota", sin el atajo de por medio-: el foco al abrir el modal no
+    caía en el textarea (`autoFocus`) sino en el primer botón del formulario
+    ("Propia"/"Compartida"). Causa: `autoFocus` de React foca una sola vez, en
+    el momento en que React inserta el elemento en el DOM; como `NoteComposer`
+    está SIEMPRE montado (`open` solo alterna `showModal()`/`close()`, nunca
+    desmonta el árbol), ese único foco ocurre en el primer render de toda la
+    app, con el `<dialog>` todavía cerrado -focar algo dentro de un `<dialog>`
+    cerrado no tiene efecto-. En cada reapertura posterior no hay un segundo
+    `autoFocus` que corra, así que ganaba el foco automático por default de
+    `showModal()`: el primer elemento enfocable del formulario, no el textarea.
+    Corregido pidiendo el foco a mano (`textareaRef.current?.focus()`) DESPUÉS
+    de `showModal()`, en el mismo efecto -recién ahí focar algo dentro del
+    diálogo tiene efecto- en vez de dejarlo en el atributo `autoFocus`.
+    `NoteDetail.tsx` tenía el mismo bug por el mismo motivo, aunque sí se monta
+    de cero en cada apertura -no salva nada: el commit de `autoFocus` de React
+    también corre ahí antes de que el efecto propio llegue a llamar
+    `showModal()`-, corregido igual. Verificado a mano en los dos: abrir con
+    `N`/el botón, o con "Editar detalle", empieza a escribir directo, sin
+    clickear el campo primero.
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
@@ -501,11 +541,7 @@ este bloque-:
    columna, autor, quién tomó cada cupo, checklist parseado con `lib/checklist.ts`)
    y arma un string markdown, sin tocar el backend. Se descarga o se copia al
    portapapeles del lado del cliente.
-7. **Atajos de teclado.** `N` nota nueva, `/` buscar, `Esc` cierra lo que esté
-   abierto (buscar, el composer, el detalle de una nota). `hooks/` ya tiene dos
-   inquilinos (`useNotificationSound.ts`, `useFollowScroll.ts`, ver "Hecho"); esto
-   sería el tercero.
-8. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
+7. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
    cambiar la URL) se busca esa nota en el store una vez que llegó `room.snapshot`,
    se resalta y la vista se centra en ella. Extiende el ruteo mínimo por path que
    ya tiene `App.tsx`, sin librería nueva.
@@ -646,10 +682,12 @@ corcho/
 │   │   │   ├── activity/     [x]  franja de eventos recientes
 │   │   │   └── chat/               no empezado -último en la lista, a propósito
 │   │   ├── components/            sin uso todavía -cada feature trae su propio CSS
-│   │   ├── hooks/             [x] useNotificationSound.ts, useFollowScroll.ts
+│   │   ├── hooks/             [x] useNotificationSound.ts, useFollowScroll.ts,
+│   │   │                          useKeyboardShortcuts.ts
 │   │   └── lib/               [x] constantes, identity, colores, avatares, ids,
 │   │                               checklist en markdown (checklist.ts), sonido de
-│   │                               notificación (notificationSound.ts)
+│   │                               notificación (notificationSound.ts), foco de
+│   │                               teclado (domFocus.ts)
 │   └── public/
 ├── .github/workflows/ci.yml [x]
 ├── docker-compose.yml       [x]
@@ -732,6 +770,17 @@ No reabrir sin motivo nuevo.
 - **Multi-pestaña:** `disconnected_at` solo se marca cuando se cierra el **último** socket
   de ese participante. El conteo de sockets vivos va en memoria en `manager.py`. Con más
   de un worker ese contador tendría que vivir en Redis; con una instancia de Render, no.
+  Verificado empíricamente, no solo por lectura del código -única confirmación real que
+  hay de este invariante-: sala nueva, una sola identidad, dos pestañas con el mismo
+  `participant_id` (reidentificación automática vía `localStorage` compartido del mismo
+  origen). Cerrar una de las dos deja `disconnected_at` en `NULL` y la pestaña que queda
+  sigue "conectado"; cerrar también la que quedaba -ahora sí el último socket- recién ahí
+  lo marca. Motivado por una alarma falsa: un participante apareció "(desconectado)" en
+  `ParticipantList.tsx` con lo que parecía un socket vivo, pero el diagnóstico encontró
+  que en realidad esa identidad se había abandonado navegando fuera de la sala sin dejar
+  ningún socket propio abierto -comportamiento correcto para el último socket, no una
+  falla del conteo-. Nada que arreglar; se deja anotada la reproducción limpia para no
+  repetir la duda.
 - **`RoomSnapshot.participant_id`:** el servidor le dice al cliente cuál es su propio
   `participant_id` en el único evento que ya viaja en exclusiva al socket que se unió.
   Encontrado en el diseño del store del frontend (día 2): el protocolo original no tenía
