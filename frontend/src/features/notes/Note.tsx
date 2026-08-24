@@ -8,8 +8,11 @@
  * decisión, dirección visual aprobada el día 3-. Este archivo solo decide QUÉ
  * clase e inline styles aplicar; nunca CÓMO se ve una clase.
  *
- * `note-card--dimmed`: buscar y resaltar-a-una-persona (`CanvasFocusContext.ts`,
- * ahí está el porqué completo de cómo se combinan los dos).
+ * `note-card--dimmed`: buscar, resaltar-a-una-persona y enlace directo a una nota
+ * (`CanvasFocusContext.ts`, ahí está el porqué completo de cómo se combinan los
+ * tres). `data-note-id` en la tarjeta es el gancho que usa `hooks/useLinkedNote.ts`
+ * para centrar la vista con `scrollIntoView` -mismo criterio "feo primero" que ya
+ * usan `data-canvas-root`/`data-column-status` en vez de refs/contexto para esto.
  *
  * ## Arrastre consciente de columnas
  *
@@ -142,7 +145,7 @@ export function Note({ noteId }: { noteId: string }) {
   )
   const author = useRoom((s) => (note === undefined ? undefined : s.participants[note.author_id]))
   const actions = useRoomActions()
-  const { searchQuery, highlightedParticipantId } = useCanvasFocus()
+  const { searchQuery, highlightedParticipantId, linkedNoteId } = useCanvasFocus()
 
   const dragStateRef = useRef<DragState | null>(null)
   const [dragScreenPosition, setDragScreenPosition] = useState<{ x: number; y: number } | null>(
@@ -186,14 +189,16 @@ export function Note({ noteId }: { noteId: string }) {
   const checklistPreviewText = proseOnly(note.text) || (checklistItems[0]?.text ?? '')
   const checklistProgressCount = checklistProgress(checklistItems)
   const isPendingDelete = pending?.kind === 'delete'
-  // Buscar y resaltar (CanvasFocusContext): se combinan por intersección, nunca uno
-  // pisa al otro -atenuada si falla CUALQUIERA de los filtros activos. Un filtro
-  // inactivo (query vacía, nadie resaltado) "matchea siempre" y no aporta nada a la
-  // cuenta, ver docstring del contexto para el porqué completo.
+  // Buscar, resaltar y enlace directo (CanvasFocusContext): se combinan por
+  // intersección, nunca uno pisa al otro -atenuada si falla CUALQUIERA de los
+  // filtros activos. Un filtro inactivo (query vacía, nadie resaltado, ningún
+  // enlace activo) "matchea siempre" y no aporta nada a la cuenta, ver docstring
+  // del contexto para el porqué completo.
   const matchesSearch = noteMatchesSearch(note, searchQuery)
   const matchesHighlight =
     highlightedParticipantId === null || note.author_id === highlightedParticipantId
-  const isDimmed = !matchesSearch || !matchesHighlight
+  const matchesLinkedNote = linkedNoteId === null || note.id === linkedNoteId
+  const isDimmed = !matchesSearch || !matchesHighlight || !matchesLinkedNote
   const hasClaimed = myParticipantId !== null && note.claims.includes(myParticipantId)
   const isFull = note.capacity !== null && note.taken_count >= note.capacity
   const claimPending = pending?.kind === 'claim'
@@ -339,6 +344,7 @@ export function Note({ noteId }: { noteId: string }) {
 
   return (
     <div
+      data-note-id={noteId}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

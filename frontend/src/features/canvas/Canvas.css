@@ -7,6 +7,17 @@
   font-family: var(--font-ui);
 }
 
+/* Enlace directo a una nota que ya no existe (`hooks/useLinkedNote.ts`): aviso
+   breve, se autodesaparece solo -no queda un botón de cerrar a propósito, es
+   transitorio por diseño, no un estado que alguien tenga que gestionar. */
+.canvas-note-notice {
+  padding: 8px 18px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--danger);
+  background: rgba(179, 73, 47, 0.1);
+}
+
 .canvas-brand {
   font-weight: 700;
   font-size: 15px;

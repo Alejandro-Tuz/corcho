@@ -1,8 +1,9 @@
 /**
  * Ruteo mínimo por path, sin librería de router (ver docstring de `app/Landing.tsx`):
- * `/` es crear sala, `/{slug}` es la sala. `popstate` alcanza porque la única
- * navegación propia de la SPA es esa -entrar a una sala existente por link/QR llega
- * como carga completa, no como navegación en cliente.
+ * `/` es crear sala, `/{slug}` es la sala, `/{slug}/{noteId}` es un enlace directo a
+ * una nota puntual de esa sala. `popstate` alcanza porque la única navegación propia
+ * de la SPA es esa -entrar a una sala (o a una nota) existente por link/QR llega como
+ * carga completa, no como navegación en cliente.
  */
 
 import { useEffect, useState } from 'react'
@@ -20,12 +21,13 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  const room = path.replace(/^\/+/, '').replace(/\/+$/, '')
+  const trimmed = path.replace(/^\/+/, '').replace(/\/+$/, '')
+  const [room, noteId] = trimmed.split('/').filter((segment) => segment !== '')
 
-  if (room === '') {
+  if (room === undefined) {
     return <Landing />
   }
-  return <RoomPage room={room} />
+  return <RoomPage room={room} noteId={noteId ?? null} />
 }
 
 export default App

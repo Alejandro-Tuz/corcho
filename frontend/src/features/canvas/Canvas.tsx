@@ -37,6 +37,10 @@
  * Exportar a markdown (`store/exportMarkdown.ts` arma el string, `lib/downloadFile.ts`
  * dispara la descarga): un botón más de la toolbar, sin estado propio -no hay nada
  * que recordar entre un export y el siguiente.
+ *
+ * `noteId` (enlace directo a una nota, `App.tsx` -> `RoomPage.tsx`) va directo a
+ * `hooks/useLinkedNote.ts`, que decide si existe, resalta y centra la vista -acá
+ * solo se pinta el aviso de "no existe" cuando el hook lo pide.
  */
 
 import { useMemo, useRef, useState } from 'react'
@@ -44,6 +48,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
 import { useFollowScroll } from '../../hooks/useFollowScroll'
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts'
+import { useLinkedNote } from '../../hooks/useLinkedNote'
 import { useNotificationSound } from '../../hooks/useNotificationSound'
 import { throttle } from '../../realtime/throttle'
 import { BACKGROUNDS } from '../../lib/constants'
@@ -77,7 +82,7 @@ const STATUS_CLASS: Record<ConnectionStatus, string> = {
   room_not_found: 'canvas-status--down',
 }
 
-export function Canvas() {
+export function Canvas({ noteId }: { noteId: string | null }) {
   const connectionStatus = useRoom((s) => s.connectionStatus)
   const background = useRoom((s) => s.background)
   const notes = useRoom((s) => s.notes)
@@ -111,6 +116,11 @@ export function Canvas() {
     searchQuery,
     onClearSearch: () => setSearchQuery(''),
   })
+  const { linkedNoteId, noteNotFound } = useLinkedNote(
+    noteId,
+    searchQuery,
+    highlightedParticipantId,
+  )
 
   if (connectionStatus === 'room_not_found') {
     return (
@@ -147,6 +157,7 @@ export function Canvas() {
         toggleHighlight,
         followedParticipantId,
         toggleFollow,
+        linkedNoteId,
       }}
     >
       <div>
@@ -225,6 +236,12 @@ export function Canvas() {
             {muted ? <MutedIcon /> : <SpeakerIcon />}
           </button>
         </div>
+
+        {noteNotFound && (
+          <div className="canvas-note-notice">
+            La nota de ese enlace ya no existe -se borró, o el link no es válido.
+          </div>
+        )}
 
         <Activity />
 

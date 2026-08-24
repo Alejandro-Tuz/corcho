@@ -5,6 +5,10 @@
  * la conexión es un efecto secundario real, y en `StrictMode` de desarrollo React
  * monta-desmonta-remonta efectos una vez a propósito (para encontrar fugas); acá es
  * inofensivo porque `close()` deja todo prolijo-.
+ *
+ * `noteId` (enlace directo a una nota, `App.tsx`) solo se reenvía a `Canvas`: acá no
+ * hay nada que decidir con él, la lógica de "¿existe? ¿la resalto?" vive en
+ * `hooks/useLinkedNote.ts`, que necesita el store ya armado.
  */
 
 import { useEffect, useState } from 'react'
@@ -16,7 +20,7 @@ import { Onboarding } from '../features/onboarding/Onboarding'
 import { Canvas } from '../features/canvas/Canvas'
 import { RoomStoreProvider } from './RoomStoreProvider'
 
-export function RoomPage({ room }: { room: string }) {
+export function RoomPage({ room, noteId }: { room: string; noteId: string | null }) {
   const [identity, setIdentity] = useState<StoredIdentity | null>(() => loadIdentity(room))
   const [store, setStore] = useState<RoomStore | null>(null)
 
@@ -48,7 +52,7 @@ export function RoomPage({ room }: { room: string }) {
 
   return (
     <RoomStoreProvider store={store}>
-      <Canvas />
+      <Canvas noteId={noteId} />
     </RoomStoreProvider>
   )
 }

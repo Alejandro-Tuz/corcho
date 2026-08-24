@@ -52,6 +52,19 @@
  *
  * El scroll en sí (a qué distancia, cuándo, cómo se corta con un gesto manual) vive
  * en `hooks/useFollowScroll.ts` -acá solo el id de a quién se sigue y el toggle.
+ *
+ * ## `linkedNoteId`: un tercer filtro, de una sola vez y no manual
+ *
+ * Enlace directo a una nota (`hooks/useLinkedNote.ts`, ahí el porqué completo).
+ * Entra a la MISMA cuenta de intersección que buscar/resaltar -mientras está activo,
+ * solo esa nota queda a opacidad normal, el resto se atenúa igual que con los otros
+ * dos filtros-, pero con dos diferencias a propósito: nadie lo prende con un click
+ * -llega solo, al confirmarse que la nota del enlace existe- y se apaga solo,
+ * pasado un rato, sin que haga falta apagarlo a mano. También se apaga si el primer
+ * filtro manual (empezar a buscar, o resaltar a alguien) le gana el control -mismo
+ * criterio que ya usa "seguir a una persona" con el primer scroll manual: lo
+ * automático cede apenas hay una acción deliberada de la persona mirando la
+ * pantalla.
  */
 
 import { createContext, useContext } from 'react'
@@ -63,6 +76,7 @@ export interface CanvasFocusValue {
   toggleHighlight: (participantId: string) => void
   followedParticipantId: string | null
   toggleFollow: (participantId: string) => void
+  linkedNoteId: string | null
 }
 
 export const CanvasFocusContext = createContext<CanvasFocusValue | null>(null)

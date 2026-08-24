@@ -61,11 +61,23 @@
  * entero, sin mezclar. Solo puede pasar entre pestañas del propio autor -es el único
  * que edita, `isMine`- y se autocorrige con la próxima actualización real que llegue,
  * igual que `note.move`.
+ *
+ * ## "Copiar enlace"
+ *
+ * Acá, no en la tarjeta -que ya tiene cuatro elementos interactivos, sumar un
+ * quinto se siente apretado; el detalle es "el lugar para hacer más cosas con
+ * esta nota puntual"-, y visible para cualquiera, no solo `isMine`: compartir el
+ * link de una nota compartida es exactamente el caso de uso, no una acción de
+ * autoría. Arma `{origin}/{slug}/{note.id}` y lo copia con
+ * `navigator.clipboard.writeText`; quien recibe ese link entra por
+ * `App.tsx` -> `hooks/useLinkedNote.ts`, que resalta y centra la vista sobre esta
+ * misma nota.
  */
 
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { useRoom } from '../../app/RoomStoreContext'
 import {
   addChecklistItem,
   checklistProgress,
@@ -77,6 +89,8 @@ import {
 import { NOTE_TEXT_MAX_LENGTH } from '../../lib/constants'
 import type { NoteState } from '../../realtime/protocol'
 import './NoteDetail.css'
+
+const COPIED_FEEDBACK_MS = 1500
 
 export function NoteDetail({
   note,
@@ -91,11 +105,14 @@ export function NoteDetail({
   onClose: () => void
   onSave: (text: string) => void
 }) {
+  const slug = useRoom((s) => s.slug)
   const dialogRef = useRef<HTMLDialogElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [draft, setDraft] = useState(note.text)
   const [dirty, setDirty] = useState(false)
   const [newItemText, setNewItemText] = useState('')
+  const [linkCopied, setLinkCopied] = useState(false)
 
   // Montado bajo demanda (ver docstring del módulo): se abre una sola vez, al
   // montar, no hay un prop `open` que ida-y-vuelva como en NoteComposer.
@@ -114,6 +131,15 @@ export function NoteDetail({
   useEffect(() => {
     dialogRef.current?.showModal()
     textareaRef.current?.focus()
+  }, [])
+
+  // Limpia el timeout del feedback de "Copiar enlace" si el modal se cierra
+  // antes de que termine -Esc, click en el backdrop, click en Cerrar, todos
+  // desmontan este componente (ver docstring del módulo, montado bajo demanda).
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current !== null) clearTimeout(copyTimeoutRef.current)
+    }
   }, [])
 
   // Mientras no hay tecleo propio sin guardar, el draft sigue al texto confirmado
@@ -150,6 +176,19 @@ export function NoteDetail({
     if (trimmed === '') return
     commitChecklistChange(addChecklistItem(draft, trimmed))
     setNewItemText('')
+  }
+
+  async function handleCopyLink(): Promise<void> {
+    const url = `${window.location.origin}/${slug}/${note.id}`
+    try {
+      await navigator.clipboard.writeText(url)
+      setLinkCopied(true)
+      if (copyTimeoutRef.current !== null) clearTimeout(copyTimeoutRef.current)
+      copyTimeoutRef.current = setTimeout(() => setLinkCopied(false), COPIED_FEEDBACK_MS)
+    } catch {
+      // Portapapeles no disponible (permiso denegado, contexto no seguro): sin
+      // feedback visual, no rompe nada más -el botón simplemente no confirma.
+    }
   }
 
   const items = parseChecklist(draft)
@@ -256,6 +295,9 @@ export function NoteDetail({
         )}
 
         <div className="detail-actions">
+          <button type="button" className="btn" onClick={handleCopyLink}>
+            {linkCopied ? '¡Copiado!' : 'Copiar enlace'}
+          </button>
           <button type="button" className="btn" onClick={() => dialogRef.current?.close()}>
             Cerrar
           </button>

@@ -489,6 +489,60 @@ agregar una función o terminar bien una existente, terminar bien la existente.
     (`corcho-{slug}-{fecha}.md`), y el contenido -cupos con quién los tomó,
     checklist con su progreso real, reacciones agrupadas por emoji con
     nombres- coincide con lo que se ve en el lienzo.
+- **Enlace directo a una nota.** Puro frontend, sin tocar el backend ni el
+  protocolo. `App.tsx` parsea un segundo segmento de path (`/{slug}/{noteId}`) y
+  lo reenvía sin lógica propia, `RoomPage.tsx` -> `Canvas.tsx`, hasta
+  `hooks/useLinkedNote.ts` (cuarto inquilino de `hooks/`), que decide todo:
+  ¿existe?, ¿la resalto?, ¿centro la vista?
+  - **"No existe" no se confunde con "todavía no cargó".** El chequeo de si el
+    id está en `state.notes` recién corre cuando `connectionStatus ===
+    'connected'` -esa transición, en `realtime/socket.ts`, pasa ÚNICAMENTE tras
+    procesar `room.snapshot`, nunca antes-, así que es la señal exacta de "ya sé
+    todo lo que hay que saber sobre esta sala", no un timeout ni una
+    aproximación. Sin esto, alguien que abre el link mientras todavía conecta
+    vería el aviso de "no existe" un instante antes de que la nota apareciera.
+  - **El fallo no es silencioso**, a pedido explícito: quien abre un link roto
+    no hizo ningún click, no tiene forma de distinguir "el link estaba mal" de
+    "la app se colgó" sin un aviso. `Canvas.tsx` pinta un renglón breve
+    ("La nota de ese enlace ya no existe -se borró, o el link no es válido.")
+    que se apaga solo.
+  - **Un tercer filtro más en la misma intersección** que ya usan buscar y
+    resaltar (`CanvasFocusContext.ts`, `Note.tsx`): una nota se atenúa si falla
+    CUALQUIERA de los tres. `data-note-id` en la tarjeta (`Note.tsx`) es el
+    gancho que usa el hook para el `scrollIntoView({behavior:'smooth', block:
+    'center'})`.
+  - **Salto de una sola vez, no un filtro persistente**: se apaga solo pasada
+    una duración fija (mismo criterio que el pulso de "aterrizaje" de
+    `Note.tsx`), y cede ante el primer filtro manual -empezar a buscar o
+    resaltar a alguien cancela el resaltado del enlace, mismo criterio que
+    "seguir a una persona" cediendo ante el primer scroll manual-. Esa cesión se
+    resuelve ajustando estado durante el render (mismo patrón que
+    `lastSyncedText` en `NoteDetail.tsx`), no en un efecto: es estado derivable
+    de otro estado ya presente (`searchQuery`, `highlightedParticipantId`). El
+    disparo inicial si SÍ necesita un efecto (depende de un timer real, no es
+    derivable), y por eso es el segundo lugar del proyecto, después de
+    `RoomPage.tsx`, con un `eslint-disable-next-line
+    react-hooks/set-state-in-effect` justificado en un comentario -mismo
+    criterio ahí: no es estado que se pueda calcular en el render, sincroniza
+    con un recurso externo real (un timer).
+  - **La URL nunca se limpia**, a pedido explícito: es el enlace que alguien
+    acaba de mandar, borrarlo de la barra de direcciones se lo saca de encima
+    antes de que lo pueda copiar o guardar. Recargar más tarde vuelve a llevar
+    a la misma nota -es lo que se espera de cualquier enlace, no un efecto
+    pegajoso-. Solo se limpia el resaltado, nunca la URL.
+  - "Copiar enlace" vive en `NoteDetail.tsx` (el detalle, no la tarjeta -que ya
+    tiene cuatro elementos interactivos-), visible para cualquiera, no solo el
+    autor: compartir el link de una nota compartida es exactamente el caso de
+    uso. Arma `{origin}/{slug}/{note.id}` y lo copia con
+    `navigator.clipboard.writeText`; el botón cambia a "¡Copiado!" 1.5s y
+    vuelve solo.
+  - Verificado en dos pestañas reales: el link copiado (leído del portapapeles)
+    tiene la forma exacta esperada; abrirlo en una pestaña nueva con dos notas
+    en la sala resalta y centra solo la nota enlazada, atenuando la otra;
+    escribir en el buscador cancela ese resaltado al toque (la nota enlazada
+    pasa a atenuada si no matchea la búsqueda); un id inventado en la URL
+    muestra el aviso de "no existe"; recargar sobre el mismo link no lo pierde,
+    confirma que la URL quedó intacta.
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
@@ -559,10 +613,6 @@ este bloque-:
      `handlers.dispatch()` devuelva el evento de una -mismo cuidado que ya costó el
      primer bug de concurrencia del día 2: nunca bloquear el camino síncrono con
      algo lento.
-6. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
-   cambiar la URL) se busca esa nota en el store una vez que llegó `room.snapshot`,
-   se resalta y la vista se centra en ella. Extiende el ruteo mínimo por path que
-   ya tiene `App.tsx`, sin librería nueva.
 
 **Regla para todo lo nuevo:** cero tablas nuevas, cero eventos de protocolo nuevos
 -salvo el resumen con IA (punto 5), que sí necesita uno para difundirse a toda la
@@ -676,7 +726,8 @@ corcho/
 ├── frontend/                [x]   sala completa y funcional; falta QR/responsive
 │   ├── src/
 │   │   ├── main.tsx         [x]
-│   │   ├── App.tsx          [x]   ruteo mínimo por path, sin librería
+│   │   ├── App.tsx          [x]   ruteo mínimo por path, sin librería -incluye
+│   │   │                          /{slug}/{noteId}, enlace directo a una nota
 │   │   ├── app/              [x]  Landing, RoomPage, RoomStoreProvider/Context
 │   │   ├── realtime/         [x]
 │   │   │   ├── protocol.ts        espejo manual de protocol.py
@@ -692,17 +743,19 @@ corcho/
 │   │   ├── features/
 │   │   │   ├── onboarding/   [x]  nombre + avatar + color
 │   │   │   ├── canvas/       [x]  lienzo, fondo (con patrones), columnas, buscar,
-│   │   │   │                      resaltar y seguir (CanvasFocusContext.ts)
+│   │   │   │                      resaltar, seguir y enlace directo
+│   │   │   │                      (CanvasFocusContext.ts)
 │   │   │   ├── notes/        [x]  post-it, drag, cupos, reacciones, composer,
 │   │   │   │                      animación de caída y de aterrizaje, detalle
-│   │   │   │                      expandible con checklist (NoteDetail.tsx)
+│   │   │   │                      expandible con checklist y "Copiar enlace"
+│   │   │   │                      (NoteDetail.tsx)
 │   │   │   ├── presence/     [x]  cursores remotos, lista de participantes
 │   │   │   │                      (ParticipantList.tsx)
 │   │   │   ├── activity/     [x]  franja de eventos recientes
 │   │   │   └── chat/               no empezado -último en la lista, a propósito
 │   │   ├── components/            sin uso todavía -cada feature trae su propio CSS
 │   │   ├── hooks/             [x] useNotificationSound.ts, useFollowScroll.ts,
-│   │   │                          useKeyboardShortcuts.ts
+│   │   │                          useKeyboardShortcuts.ts, useLinkedNote.ts
 │   │   └── lib/               [x] constantes, identity, colores, avatares, ids,
 │   │                               checklist en markdown (checklist.ts), sonido de
 │   │                               notificación (notificationSound.ts), foco de
