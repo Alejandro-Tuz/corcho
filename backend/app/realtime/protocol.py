@@ -196,7 +196,7 @@ class NoteCreateIn(Event):
     id: uuid.UUID
     kind: NoteKind
     status: NoteStatus
-    text: str = Field(max_length=500)
+    text: str = Field(max_length=2000)  # mismo límite y mismo motivo que NoteUpdateIn.text
     color: NoteColor
     position_x: float
     position_y: float
@@ -220,7 +220,11 @@ class NoteCreateOut(NoteState):
 class NoteUpdateIn(Event):
     type: Literal["note.update"] = "note.update"
     id: uuid.UUID
-    text: str = Field(max_length=500)
+    # 2000, no 500: cubre nota expandible con descripción larga + checklist en
+    # markdown (`- [ ] item`), no solo el título corto de la creación inicial.
+    # Espeja el CHECK "text_length" de la tabla notes -subido en la misma migración
+    # que este límite, ver alembic/versions-.
+    text: str = Field(max_length=2000)
     color: NoteColor
 
 

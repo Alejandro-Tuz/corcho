@@ -23,9 +23,11 @@ bien la existente.
 - `app/core/ids.py`: slug de sala de 10 caracteres, alfabeto de 32 símbolos sin 0/O ni
   1/I, generado con `secrets`.
 - `app/core/constants.py`: catálogos de `color`/`avatar`/`background`/`reaction`, un
-  `Literal` derivado de una única tupla por catálogo (`Literal[*TUPLA]`). Fondos son
-  colores sutiles (hueso, gris cálido, salvia apagado, azul niebla, uno oscuro), no
-  patrones: un color se nota a distancia en la otra pantalla, un patrón no.
+  `Literal` derivado de una única tupla por catálogo (`Literal[*TUPLA]`). Fondos
+  arrancaron como cinco colores sutiles (hueso, gris cálido, salvia apagado, azul
+  niebla, uno oscuro), sin patrones -la idea original era que un color se nota a
+  distancia en la otra pantalla y un patrón no-. Catálogo ampliado en el pulido del
+  día 3: ver el bullet correspondiente más abajo, revierte esto parcialmente.
 - `realtime/protocol.py` + `frontend/src/realtime/protocol.ts`: el contrato completo.
   Envelope plano, mismo `type` para el mensaje del cliente y la confirmación del
   servidor pero modelos distintos (`*In` nunca lleva `participant_id`/`author_id`,
@@ -90,6 +92,29 @@ bien la existente.
   corregido a `"bone"` (cambio de código, sin migración). Todo verificado con smoke
   tests funcionales contra Postgres real -no hay tests permanentes para estos tres
   servicios todavía, quedan para cuando exista `tests/conftest.py` compartido-.
+- `api/v1/` (`router.py`, `rooms.py` -crear sala y devolver el `slug`-, `health.py`,
+  `deps.py` con `get_db`), `main.py` (el `lifespan` cablea el cliente de Redis, el
+  `ConnectionManager` y el `RedisBroker` en `app.state` -tanto `api/v1/` como
+  `realtime/endpoint.py` los necesitan, y un framework de DI más pesado no se
+  justifica para tres días), `realtime/endpoint.py` (la ruta `/ws/{room}`) y
+  `realtime/handlers.py` (despacho tipo de mensaje -> servicio, invariante 2).
+  Cierra el círculo de `protocol.py`: de acá en más un mensaje entra por el socket,
+  `handlers.py` lo valida y llama al servicio que corresponde, y `endpoint.py` es
+  quien hace `session.commit()` y recién después `broker.publish()` -pieza exacta
+  donde aparecieron los dos bugs de concurrencia de abajo.
+- **Frontend, día 2: bloques 1 a 3.** `realtime/socket.ts` (conexión, backoff
+  exponencial, heartbeat con watchdog que fuerza el cierre si el servidor queda en
+  silencio, cola de reenvío que solo encola lo que nunca llegó a salir) +
+  `store/roomStore.ts` (estado optimista con reconciliación, invariante 7) +
+  `lib/identity.ts` (reidentificación por sala en `localStorage`). Onboarding
+  (nombre + avatar + color), lienzo con las tres columnas fijas, notas arrastrables
+  entre columnas -`Note.tsx` usa `document.elementFromPoint()` sobre
+  `data-column-status` para decidir dónde cayó un arrastre, en vez de medir anchos
+  de columna a mano-, cupos con rebote (la única acción sobre una nota que a
+  propósito NO es optimista, ver esa decisión en "Decisiones de diseño ya
+  tomadas"), cursores remotos y nota fantasma
+  (`presence.cursor`/`presence.dragging`), reacciones, y fondo de sala compartido
+  (`room.background`).
 - **Día 2, dos bugs de backend encontrados en pleno desarrollo de frontend** (el
   primero tumbó el proceso entero durante una prueba real de dos pestañas en carrera
   por un cupo; el segundo salió a la luz recién al perseguir al primero):
@@ -122,6 +147,119 @@ bien la existente.
     original (dos pestañas en carrera real, un socket matado a la fuerza a mitad de
     camino) ocho veces seguidas sin que el proceso se cayera ni una vez, y sin
     conexiones `idle in transaction` acumuladas después.
+- **Frontend, día 3, bloque 4: franja de actividad.** `store/activity.ts` +
+  `state.activity` en el store: ventana acotada (40 renglones) de los últimos
+  eventos ya confirmados, formateados en español, con el color del participante que
+  los disparó. No todos los eventos dejan renglón a propósito -`note.update` no,
+  por ruido; los rechazos de cupo no, son privados; `note.move` solo si CAMBIA de
+  columna, no en cada reacomodo dentro de la misma-. `features/activity/Activity.tsx`
+  la pinta como una tira horizontal que se autodesplaza al último evento. Bug real
+  encontrado: `applyNoteMove` comparaba `current.status !== event.status` para
+  decidir si hubo cambio de columna, pero en la pantalla de quien arrastra
+  `moveNote` ya había pisado `status` de forma optimista antes de que esa
+  confirmación llegara -daba "no cambió" siempre para el propio autor del
+  arrastre, aunque sí hubiera cambiado (en las demás pantallas funcionaba bien,
+  nunca tocaron la nota de forma optimista). Corregido comparando contra
+  `pendingNoteOps[id].restore.status` cuando existe.
+- **Frontend, día 3: pulido visual completo.** Dirección aprobada antes de
+  aplicarla -paleta, tipografía y un post-it de muestra en un artifact, dos vueltas
+  de ajuste sobre el post-it y el pin antes del visto bueno- y recién entonces
+  llevada a todos los componentes. Paleta: corcho cálido + salvia fría como acento
+  de interfaz (nuevo, reemplaza los `#999`/`#666` sueltos por todo el CSS inline).
+  Tres roles tipográficos que nunca se mezclan: Patrick Hand SOLO para el texto que
+  alguien escribe en una nota, IBM Plex Sans para todo lo que la interfaz rotula,
+  IBM Plex Mono para datos (cupos, hora, código de sala). Tokens en `index.css`
+  (`:root`), fuentes por Google Fonts en `index.html`.
+  - **Post-it** (`features/notes/Note.css`): color sólido real por `NoteColor`
+    -bug encontrado: hasta acá `Note.tsx` pintaba toda nota con `background:
+    '#ddd'` fijo sin importar el color elegido al crearla, el mapeo color->hex
+    nunca se había escrito-, esquina doblada plana (dos tonos lisos, sin sombra
+    propia -una vuelta con sombra y con `filter: drop-shadow` leía a interfaz
+    vieja), radio de esquina bajo (3px: una vuelta intermedia con radio grande y
+    sin esquina doblada leía a card genérica de app, no a post-it), rotación fija
+    por nota (`lib/noteRotation.ts`, hash determinista del id, nunca al azar en
+    cada render). Chip de autor: avatar en `grayscale(1) contrast(1.15)` sobre el
+    color de participante -una primera vuelta usaba `brightness(0) invert(1)`
+    (silueta blanca pura) y el animal dejaba de reconocerse, grayscale conserva el
+    contraste interno del dibujo-, más el nombre como chip con fondo propio junto
+    al pin -una primera vuelta lo puso como texto suelto a media opacidad y pasaba
+    desapercibido sobre el color de la nota-.
+  - **Animaciones**, a pedido explícito: al borrar, la nota cae y gira en vez de
+    desaparecer de golpe -`state.fallingNotes` guarda una foto de la nota ya
+    borrada de `notes`, `NoteFalling.tsx` (componente puramente presentacional,
+    sin los hooks de arrastre de `Note.tsx`) la anima, un `setTimeout` en el store
+    la limpia sola. Al cambiar de columna (arrastre propio o ajeno), un pulso de
+    escala breve para que se note el cambio -`Note.tsx` compara el `status` contra
+    el de la nota en el render anterior, el patrón de React para "ajustar estado
+    cuando algo cambió" sin `useEffect`, y solo entonces aplica la clase.
+  - **Columnas** (`features/canvas/Column.css`): paneles translúcidos -dejan ver
+    el fondo de sala por debajo, si no la función "fondo compartido" no tendría
+    casi superficie donde mostrarse- y con alto dinámico: `columnMinHeightPx`
+    (`store/selectors.ts`) crece según la nota más baja de cada columna, en vez de
+    quedar fijo con las últimas notas desbordando sin scroll.
+  - `NoteComposer.tsx` reemplaza los `window.prompt()` del día 2: modal con
+    `<dialog>` nativo (foco atrapado, `Esc` cierra, `::backdrop` gratis, sin
+    librería), tipo propia/compartida, color, cupos.
+  - Onboarding y Landing con la misma paleta; avatar y color como selectores
+    visuales -antes, botones de puro texto a propósito, ver bloque de día 2 arriba.
+- **Fondos: catálogo ampliado con patrones**, a pedido directo tras ver la primera
+  versión de la paleta ("la diferencia de tono es casi mínima"). Revierte
+  PARCIALMENTE la decisión original de `core/constants.py` ("colores sutiles, no
+  patrones" -ver bullet más arriba-): los cinco sólidos se separaron más en
+  tono/saturación (mismos identificadores, ninguna sala ya creada queda inválida) y
+  se sumaron tres variantes con lunares de alto contraste (`dots_sage`,
+  `dots_blue`, `dots_dark`) -exactamente la vía que la propia decisión de "sin
+  CHECK en Postgres para este catálogo" dejó abierta: se sumaron al `Literal` de
+  `core/constants.py` sin ninguna migración, y a los espejos correspondientes
+  (`protocol.ts`, `lib/constants.ts`, `features/canvas/backgroundColor.ts`,
+  `store/activity.ts`).
+- **Nota expandible** (pulido día 3 extendido, a pedido tras ver el pulido visual
+  completo): botón "expandir" en la esquina libre del post-it (abajo-izquierda; pin,
+  esquina doblada y borrar ya ocupaban las otras tres) abre `NoteDetail.tsx`, un
+  `<dialog>` nativo con la descripción larga y un checklist. Legible por cualquiera,
+  editable solo por el autor (`isMine`) -misma autoridad que ya regía
+  `update_note`, esto no la duplica, solo la refleja en la UI-.
+  - **Sin tabla, sin migración de esquema, sin eventos de protocolo nuevos, a
+    propósito**: el checklist vive DENTRO de `notes.text` como markdown
+    (`- [ ] algo` / `- [x] algo`, `lib/checklist.ts`), reutilizando `note.update`
+    tal cual ya existía. Alternativa descartada explícitamente: una tabla
+    `note_checklist_items` con eventos propios de tildado por ítem -se acerca
+    demasiado a edición de texto simultánea con estructura propia, que
+    "Fuera de alcance" ya excluye por necesitar CRDTs.
+  - **Una sola superficie de texto, no dos regiones ocultas**: el textarea de
+    `NoteDetail.tsx` muestra el texto crudo tal cual, líneas de checklist
+    incluidas -escribir `- [ ] algo` a mano ahí lo vuelve un ítem tildable de
+    inmediato, sin conversión oculta que ocurra recién al guardar. La lista de
+    checkboxes debajo es una vista derivada EN VIVO de ese mismo texto. El
+    post-it, en cambio, nunca muestra las líneas de checklist crudas: solo la
+    prosa (o el primer ítem, si no hay prosa) más un chip de progreso ("2/5").
+  - Tildar/agregar/borrar un ítem guarda de inmediato (un `note.update` por
+    click); la prosa se guarda al perder foco del textarea o al cerrar el modal,
+    nunca tecla por tecla. Ver la limitación de multi-pestaña más abajo, mismo
+    nivel de detalle que `move_note`.
+  - Límite de `notes.text` subido de 500 a 2000 caracteres -500 alcanzaba para un
+    título, no para descripción + checklist-: `Field(max_length=2000)` en
+    `NoteCreateIn`/`NoteUpdateIn` (`protocol.py`) y CHECK `text_length` de la
+    tabla notes, migración `0594aa52662a` (escrita a mano: un cambio de solo el
+    cuerpo de un CHECK no siempre lo detecta `--autogenerate`).
+  - Íconos del botón de expandir y del chip de progreso: SVG inline, no
+    caracteres de fuente (`⛶`, `☑`) -mismo riesgo de tofu en algunas plataformas
+    que ya corren los emoji de avatar, evitable a mano sin costo.
+  - `<dialog>` sacado con `createPortal` a `document.body`: `.note-card` tiene
+    `transform: rotate(...)` siempre puesto (rotación fija por nota), y un
+    ancestro con `transform` pasa a ser el "containing block" de la capa
+    superior -sin el portal, `showModal()` centraba el modal relativo a la nota
+    rotada, no a la pantalla.
+  - Dos bugs reales encontrados probando el botón a mano: (1) el padding
+    inferior original de `.note-card` (10px) era menor que la franja de 20px+4px
+    que ocupan los dos botones de esquina -el último contenido en flujo
+    (`.note-reacts`) los tapaba por completo en notas con reacciones; subido a
+    26px. (2) `handlePointerDown` distinguía "el click empezó en un botón" con
+    `e.target instanceof HTMLElement`, que da `false` para un `<svg>`/`<path>`
+    -un `SVGElement` no es `HTMLElement`-, así que el primer botón de una nota
+    con ícono SVG en vez de texto plano armaba un arrastre y se comía el click
+    antes de que llegara a React. Corregido a `instanceof Element`, ancestro
+    común de HTML y SVG.
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
@@ -132,6 +270,20 @@ bien la existente.
   aunque corresponda a un instante anterior del arrastre. Sin control de versión de
   por medio. Peor caso: la nota "salta" un instante a una posición vieja antes de
   asentarse en la correcta, no pérdida de datos ni estado inconsistente en la base.
+- **`NoteDetail.tsx`** (nota expandible) tiene una limitación de la misma familia que
+  `move_note`, encontrada por diseño y no blindada por el mismo motivo -el costo no
+  compensa en tres días-: `notes.text` sigue siendo un campo entero, last-write-wins.
+  El modal reduce la ventana de choque (cada tildado de ítem lee y escribe el texto
+  más fresco posible, sin pasar por una copia vieja; ver el docstring del componente
+  para el mecanismo exacto), pero no la cierra del todo. Mientras el autor tiene
+  tecleada prosa sin guardar en una pestaña (`dirty === true`), esa copia local no se
+  resincroniza con el servidor -no hay forma de mezclar tecleo en curso con un cambio
+  remoto sin edición colaborativa de verdad (CRDTs, fuera de alcance). Si la MISMA
+  persona edita la prosa en dos pestañas casi al mismo tiempo, o tilda un ítem en una
+  mientras la otra todavía no guardó lo que estaba escribiendo, gana quien guarda
+  último: pisa el campo entero, sin mezclar. Solo puede pasar entre pestañas del
+  propio autor -es el único que edita- y se autocorrige con la próxima actualización
+  real que llegue, igual que `move_note`.
 - **`chat.list_messages`** (y por lo tanto `room.snapshot`): Postgres congela `now()`
   al inicio de la transacción, no por sentencia. Mensajes creados en la misma
   transacción quedan con `created_at` idéntico y su orden relativo no está
@@ -139,12 +291,14 @@ bien la existente.
   transacción), pero sí en scripts que inserten varios mensajes sin commitear entre
   medio -`scripts/seed.py` tiene que tenerlo presente-.
 
-**Siguiente:**
+**Siguiente, en este orden (día 3, el último):**
 
-1. `api/v1/`, `main.py` (wiring de `ConnectionManager`/`RedisBroker`/`Settings` en el
-   lifespan), `realtime/handlers.py`, `realtime/endpoint.py`.
-
-El día 1 cierra con dos pestañas sincronizadas, aunque el HTML sea feo.
+1. Contenido sembrado (`scripts/seed.py`) -cuidado con el `now()` congelado por
+   transacción, ya documentado más abajo en `chat.list_messages`.
+2. QR y responsive en celular.
+3. Deploy en Render.
+4. Modo teatro (`scripts/theater.py`) y README con diagrama.
+5. Chat, solo si sobra tiempo.
 
 **Si el tiempo aprieta, lo primero que sale es el chat.** Es la pieza más cara de lo que
 queda (persistencia, scroll, no leídos, filtro por tarea, typing) y la que menos aporta al
@@ -207,71 +361,86 @@ Los archivos marcados con `[x]` ya existen. El resto está pendiente.
 corcho/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py
+│   │   ├── main.py          [x]   wiring de ConnectionManager/RedisBroker/Settings
 │   │   ├── core/
-│   │   │   ├── config.py          Settings con pydantic-settings
-│   │   │   ├── redis.py           pool de conexión, nada más
-│   │   │   └── ids.py       [x]   slug de sala para URL/QR
+│   │   │   ├── config.py    [x]   Settings con pydantic-settings
+│   │   │   ├── redis.py     [x]   pool de conexión, nada más
+│   │   │   ├── ids.py       [x]   slug de sala para URL/QR
+│   │   │   └── constants.py [x]   catálogos visuales, un Literal por tupla
 │   │   ├── api/
-│   │   │   ├── deps.py
+│   │   │   ├── deps.py      [x]   get_db, una Session por request
 │   │   │   └── v1/
-│   │   │       ├── router.py
-│   │   │       ├── rooms.py       crear sala, unirse, snapshot inicial
-│   │   │       └── health.py
+│   │   │       ├── router.py [x]
+│   │   │       ├── rooms.py  [x]  crear sala, devolver el slug
+│   │   │       └── health.py [x]
 │   │   ├── realtime/
-│   │   │   ├── protocol.py        EL CONTRATO: envelope + tipos de evento
-│   │   │   ├── endpoint.py        la ruta /ws/{room}
-│   │   │   ├── manager.py         ConnectionManager por sala (sockets locales)
-│   │   │   ├── broker.py          puente Redis pub/sub <-> manager
-│   │   │   └── handlers.py        despacho: tipo de mensaje -> servicio
+│   │   │   ├── protocol.py  [x]   EL CONTRATO: envelope + tipos de evento
+│   │   │   ├── endpoint.py  [x]   la ruta /ws/{room}
+│   │   │   ├── manager.py   [x]   ConnectionManager por sala (sockets locales)
+│   │   │   ├── broker.py    [x]   puente Redis pub/sub <-> manager
+│   │   │   └── handlers.py  [x]   despacho: tipo de mensaje -> servicio
 │   │   ├── db/
 │   │   │   ├── base.py      [x]   Base declarativa + naming_convention
-│   │   │   └── session.py         engine, sessionmaker
+│   │   │   └── session.py   [x]   engine, sessionmaker
 │   │   ├── models/          [x]   los 6 modelos
-│   │   ├── schemas/               Pydantic, solo entrada/salida REST
-│   │   └── services/
-│   │       ├── rooms.py
-│   │       ├── notes.py
-│   │       ├── claims.py          cupos: tomar y soltar
-│   │       └── chat.py
-│   ├── scripts/
+│   │   ├── schemas/         [x]   Pydantic, solo entrada/salida REST
+│   │   └── services/        [x]
+│   │       ├── rooms.py     [x]
+│   │       ├── notes.py     [x]
+│   │       ├── claims.py    [x]   cupos: tomar y soltar
+│   │       └── chat.py      [x]
+│   ├── scripts/                   solo .gitkeep todavía -próximo en la lista-
 │   │   ├── seed.py                sala precargada del demo
 │   │   └── theater.py             clientes WS falsos (modo teatro)
 │   ├── alembic/             [x]   configurado, migración inicial aplicada
 │   ├── tests/
-│   │   ├── conftest.py
-│   │   ├── test_claims.py
-│   │   ├── test_protocol.py
-│   │   └── integration/
+│   │   ├── conftest.py            existe, vacío -pendiente para cuando haya
+│   │   │                          tests de rooms/notes/chat services
+│   │   ├── test_claims.py   [x]   el que importa: la concurrencia real
+│   │   ├── test_protocol.py       placeholder, sin contenido real todavía
+│   │   └── integration/           solo .gitkeep
 │   ├── pyproject.toml       [x]
-│   └── Dockerfile
-├── frontend/                [x]   andamiaje de Vite, sin código propio aún
+│   └── Dockerfile                 no existe todavía -hace falta para el deploy
+├── frontend/                [x]   sala completa y funcional; falta seed/QR/responsive
 │   ├── src/
-│   │   ├── main.tsx
-│   │   ├── app/                   providers, router, layout
-│   │   ├── realtime/
+│   │   ├── main.tsx         [x]
+│   │   ├── App.tsx          [x]   ruteo mínimo por path, sin librería
+│   │   ├── app/              [x]  Landing, RoomPage, RoomStoreProvider/Context
+│   │   ├── realtime/         [x]
 │   │   │   ├── protocol.ts        espejo manual de protocol.py
-│   │   │   ├── socket.ts          conexión, backoff, ping, cola de reenvío
+│   │   │   ├── socket.ts          conexión, backoff, heartbeat, cola de reenvío
 │   │   │   ├── dispatch.ts        evento entrante -> store
 │   │   │   └── throttle.ts        cursores y nota fantasma
-│   │   ├── store/                 estado de la sala, en un solo sitio
+│   │   ├── store/             [x] estado de la sala, en un solo sitio
+│   │   │   ├── roomStore.ts       RoomCommands + RoomApplyActions
+│   │   │   ├── types.ts           RoomState, PendingNoteOp
+│   │   │   ├── selectors.ts       orden de notas, columnas, alto dinámico
+│   │   │   └── activity.ts        formateo de la franja de actividad
 │   │   ├── features/
-│   │   │   ├── onboarding/        nombre + avatar + color
-│   │   │   ├── canvas/            lienzo, fondo, columnas
-│   │   │   ├── notes/             post-it, drag, cupos, reacciones
-│   │   │   ├── presence/          cursores, conectados, notas fantasma
-│   │   │   ├── chat/
-│   │   │   └── activity/          franja de eventos recientes
-│   │   ├── components/            UI tonta y reutilizable
-│   │   ├── hooks/
-│   │   ├── lib/
-│   │   └── styles/
+│   │   │   ├── onboarding/   [x]  nombre + avatar + color
+│   │   │   ├── canvas/       [x]  lienzo, fondo (con patrones), columnas
+│   │   │   ├── notes/        [x]  post-it, drag, cupos, reacciones, composer,
+│   │   │   │                      animación de caída y de aterrizaje, detalle
+│   │   │   │                      expandible con checklist (NoteDetail.tsx)
+│   │   │   ├── presence/     [x]  cursores remotos
+│   │   │   ├── activity/     [x]  franja de eventos recientes
+│   │   │   └── chat/               no empezado -último en la lista, a propósito
+│   │   ├── components/            sin uso todavía -cada feature trae su propio CSS
+│   │   ├── hooks/                 sin uso todavía
+│   │   └── lib/               [x] constantes, identity, colores, avatares, ids,
+│   │                               checklist en markdown (checklist.ts)
 │   └── public/
 ├── .github/workflows/ci.yml [x]
 ├── docker-compose.yml       [x]
 ├── .env.example             [x]
 └── CLAUDE.md                [x]
 ```
+
+Nota sobre `styles/`: en el plan original iba a ser una carpeta compartida de CSS;
+en la práctica cada componente de `features/` trae su propio `.css` al lado (`Note.css`,
+`Column.css`, etc.) y los tokens compartidos (paleta, tipografía) viven en
+`src/index.css`. La carpeta nunca se creó -no hace falta, y no vale la pena moverlo
+todo ahora solo para que coincida con el plan original.
 
 ## Modelo de datos
 
@@ -474,6 +643,14 @@ que apretar:
   una versión a medias.
 - Para piezas de diseño (protocolo, servicios con concurrencia): mostrar el diseño y
   esperar revisión antes de escribir código.
+- Para pulido visual (paleta, tipografía, un componente de muestra): mostrar la
+  dirección y esperar aprobación antes de aplicarla a todos los componentes -evita
+  rehacer diez archivos porque el primero no convenció (así se hizo el pulido del
+  día 3: post-it y pin pasaron por dos vueltas de ajuste antes del visto bueno,
+  sobre un solo componente de muestra, no sobre la app entera).
+- **Nunca ejecutar comandos de git.** Ni `add`, ni `commit`, ni `push`, ni
+  `checkout`. El control de versiones lo lleva el usuario a mano. Cuando una tarea
+  esté lista, decirlo y parar.
 
 ## Fuera de alcance
 
@@ -482,13 +659,3 @@ Decidido y cerrado. No proponer, no implementar:
 canales de chat privados por tarea, menciones, toque de atención, historial completo de
 actividad, edición de texto simultánea (necesitaría CRDTs), subida de fotos de perfil,
 login con contraseña, audio o video, selector de color libre para el fondo.
-
-## Pulido previsto (día 3)
-
-- Al borrar una nota: animación de caída, como si se le quitara el pin. Ocurre en todas
-  las pantallas al llegar `note.deleted`. Se elimina del store al terminar la animación,
-  no al recibir el evento. `pointer-events: none` mientras cae.
-
-  - **Nunca ejecutar comandos de git.** Ni `add`, ni `commit`, ni `push`, ni `checkout`.
-  El control de versiones lo lleva el usuario a mano. Cuando una tarea esté lista, decirlo
-  y parar.

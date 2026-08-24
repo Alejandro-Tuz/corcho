@@ -168,6 +168,8 @@ export interface NoteCreateIn {
   id: string
   kind: NoteKind
   status: NoteStatus
+  /** Hasta NOTE_TEXT_MAX_LENGTH (lib/constants.ts) -espejo del `Field(max_length=2000)`
+   * de protocol.py y del CHECK "text_length" de la tabla notes. */
   text: string
   color: NoteColor
   position_x: number
@@ -184,6 +186,7 @@ export interface NoteCreateOut extends NoteState {
 export interface NoteUpdateIn {
   type: 'note.update'
   id: string
+  /** Mismo límite que NoteCreateIn.text -ver ese comentario. */
   text: string
   color: NoteColor
 }

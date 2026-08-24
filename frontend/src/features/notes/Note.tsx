@@ -55,11 +55,13 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
 import { throttle } from '../../realtime/throttle'
 import { AVATAR_EMOJI } from '../../lib/avatarEmoji'
+import { checklistProgress, parseChecklist, proseOnly } from '../../lib/checklist'
 import { NOTE_COLOR_HEX } from '../../lib/noteColor'
 import { noteRotationDeg } from '../../lib/noteRotation'
 import { PARTICIPANT_COLOR_HEX } from '../../lib/participantColor'
 import { REACTIONS } from '../../lib/constants'
 import type { NoteStatus, ParticipantState, Reaction } from '../../realtime/protocol'
+import { NoteDetail } from './NoteDetail'
 import './Note.css'
 
 const DRAG_BROADCAST_INTERVAL_MS = 50
@@ -91,6 +93,40 @@ function authorMark(author: ParticipantState | undefined): string {
   return author !== undefined ? AVATAR_EMOJI[author.avatar] : '❔'
 }
 
+/** SVG inline, no un glifo de fuente: un carácter como "⛶" se ve como caja vacía en
+ * algunas plataformas -mismo riesgo de renderizado que ya corre `authorMark` con los
+ * emoji de avatar, pero acá no hace falta correrlo, un ícono de cuatro flechas es
+ * trivial a mano y no depende de qué fuente de emoji tenga el sistema. */
+function ExpandIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" aria-hidden="true">
+      <path
+        d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+/** Mismo motivo que ExpandIcon: para el chip de progreso del checklist, en vez de un
+ * glifo tipo "☑" con el mismo riesgo de tofu. */
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 16 16" width="10" height="10" fill="none" aria-hidden="true">
+      <path
+        d="M3 8.5l3.2 3.2L13 4.5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 export function Note({ noteId }: { noteId: string }) {
   const note = useRoom((s) => s.notes[noteId])
   const pending = useRoom((s) => s.pendingNoteOps[noteId])
@@ -106,6 +142,7 @@ export function Note({ noteId }: { noteId: string }) {
   const [dragScreenPosition, setDragScreenPosition] = useState<{ x: number; y: number } | null>(
     null,
   )
+  const [detailOpen, setDetailOpen] = useState(false)
   const throttledSendDragging = useMemo(
     () => throttle(actions.sendDragging, DRAG_BROADCAST_INTERVAL_MS),
     [actions],
@@ -136,6 +173,12 @@ export function Note({ noteId }: { noteId: string }) {
   if (note === undefined) return null
 
   const isMine = note.author_id === myParticipantId
+  // Ver docstring de lib/checklist.ts: el post-it muestra solo la prosa (o, si no
+  // hay, el primer ítem a modo de título) más un chip de progreso -nunca la lista
+  // entera de ítems, eso queda para NoteDetail.
+  const checklistItems = parseChecklist(note.text)
+  const checklistPreviewText = proseOnly(note.text) || (checklistItems[0]?.text ?? '')
+  const checklistProgressCount = checklistProgress(checklistItems)
   const isPendingDelete = pending?.kind === 'delete'
   const hasClaimed = myParticipantId !== null && note.claims.includes(myParticipantId)
   const isFull = note.capacity !== null && note.taken_count >= note.capacity
@@ -158,7 +201,16 @@ export function Note({ noteId }: { noteId: string }) {
     // nota "se mueve un pixel" en vez de tomarse el cupo o reaccionar. Si el punto
     // de partida es un botón, no se inicia el arrastre: se deja que el click siga su
     // curso normal.
-    if (e.target instanceof HTMLElement && e.target.closest('button') !== null) return
+    //
+    // `instanceof Element`, no `instanceof HTMLElement`: segundo bug real,
+    // encontrado al agregar el botón de expandir (ExpandIcon, nota expandible,
+    // pulido día 3 extendido) -el primer botón de una nota con un ícono SVG en vez
+    // de texto plano. Un `<svg>`/`<path>` es `SVGElement`, no `HTMLElement`, así
+    // que `instanceof HTMLElement` daba `false` para un click que arrancaba sobre
+    // el ícono y la guarda nunca se activaba: el arrastre se armaba igual y se
+    // comía el click antes de que llegara a React. `Element` es el ancestro común
+    // de ambos y sigue teniendo `.closest()`.
+    if (e.target instanceof Element && e.target.closest('button') !== null) return
     e.currentTarget.setPointerCapture(e.pointerId)
     const rect = e.currentTarget.getBoundingClientRect()
     dragStateRef.current = {
@@ -287,23 +339,32 @@ export function Note({ noteId }: { noteId: string }) {
       </div>
       <span className="note-author">{author?.name ?? ''}</span>
 
-      <div className="note-text">{note.text}</div>
+      <div className="note-text">{checklistPreviewText}</div>
 
       {note.kind === 'own' && <span className="note-kind-tag">propia</span>}
 
-      {note.kind === 'shared' && (
+      {(note.kind === 'shared' || checklistItems.length > 0) && (
         <div className="note-foot">
-          <span className="note-pill">
-            {note.taken_count}/{note.capacity ?? 0}
-          </span>
-          {hasClaimed ? (
-            <button type="button" className="note-claim-btn" onClick={handleRelease} disabled={releasePending}>
-              {releasePending ? '…' : 'soltar'}
-            </button>
-          ) : (
-            <button type="button" className="note-claim-btn" onClick={handleClaim} disabled={isFull || claimPending}>
-              {claimPending ? '…' : isFull ? 'completo' : 'tomar cupo'}
-            </button>
+          {note.kind === 'shared' && (
+            <>
+              <span className="note-pill">
+                {note.taken_count}/{note.capacity ?? 0}
+              </span>
+              {hasClaimed ? (
+                <button type="button" className="note-claim-btn" onClick={handleRelease} disabled={releasePending}>
+                  {releasePending ? '…' : 'soltar'}
+                </button>
+              ) : (
+                <button type="button" className="note-claim-btn" onClick={handleClaim} disabled={isFull || claimPending}>
+                  {claimPending ? '…' : isFull ? 'completo' : 'tomar cupo'}
+                </button>
+              )}
+            </>
+          )}
+          {checklistItems.length > 0 && (
+            <span className="note-pill note-pill--checklist">
+              <CheckIcon /> {checklistProgressCount.done}/{checklistProgressCount.total}
+            </span>
           )}
         </div>
       )}
@@ -316,6 +377,16 @@ export function Note({ noteId }: { noteId: string }) {
         onToggle={actions.toggleReaction}
       />
 
+      <button
+        type="button"
+        className="note-expand-btn"
+        onClick={() => setDetailOpen(true)}
+        aria-label={isMine ? 'Editar detalle' : 'Ver detalle'}
+        title={isMine ? 'Editar detalle' : 'Ver detalle'}
+      >
+        <ExpandIcon />
+      </button>
+
       {isMine && (
         <button
           type="button"
@@ -327,6 +398,16 @@ export function Note({ noteId }: { noteId: string }) {
         >
           ×
         </button>
+      )}
+
+      {detailOpen && (
+        <NoteDetail
+          note={note}
+          isMine={isMine}
+          authorName={author?.name ?? ''}
+          onClose={() => setDetailOpen(false)}
+          onSave={(text) => actions.updateNote(noteId, text, note.color)}
+        />
       )}
     </div>
   )

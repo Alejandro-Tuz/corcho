@@ -23,7 +23,12 @@
   width: 164px;
   min-height: 132px;
   border-radius: 3px;
-  padding: 14px 12px 10px;
+  /* El padding inferior deja libre la franja donde viven los dos botones de
+     esquina (expandir/borrar, ambos position:absolute, bottom:4px, 20px de
+     alto) -bug real encontrado con Playwright: con el 10px original, el
+     último contenido en flujo (.note-reacts) terminaba invadiendo esa franja
+     y tapaba el botón de expandir por completo en notas con reacciones. */
+  padding: 14px 12px 26px;
   font-family: var(--font-hand);
   color: var(--note-ink);
   box-shadow:
@@ -264,6 +269,41 @@
   background: rgba(255, 255, 255, 0.9);
   box-shadow: inset 0 0 0 1.5px var(--note-ink);
   font-weight: 600;
+}
+
+/* Expandir (nota expandible, pulido día 3 extendido): única esquina libre de las
+   cuatro -pin arriba-izq, esquina doblada arriba-der, borrar abajo-der-. Visible en
+   TODA nota, no solo `isMine` -a diferencia de borrar, ver el detalle no es una
+   acción de autoría (NoteDetail.tsx decide adentro qué es editable). */
+.note-expand-btn {
+  position: absolute;
+  bottom: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--note-ink);
+  opacity: 0.35;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.note-expand-btn:hover {
+  opacity: 0.9;
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* Chip de progreso del checklist (lib/checklist.ts): mismo aspecto que .note-pill
+   -que ya usan los cupos-, con el ícono de tilde para no confundirse con "2/5" de
+   cupos cuando una nota compartida tiene las dos cosas a la vez. */
+.note-pill--checklist {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 .note-delete-btn {

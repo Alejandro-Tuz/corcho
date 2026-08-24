@@ -1,0 +1,167 @@
+/**
+ * Modal de detalle (nota expandible, pulido día 3 extendido). Mismos tokens y mismo
+ * `<dialog>` nativo que `NoteComposer.css` -ver su docstring-, más ancho porque acá
+ * el contenido es descripción larga + checklist, no un formulario corto.
+ */
+
+.detail {
+  border: none;
+  border-radius: 16px;
+  padding: 0;
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: 0 24px 48px -16px rgba(20, 12, 4, 0.4);
+  width: min(480px, 92vw);
+}
+
+.detail::backdrop {
+  background: rgba(20, 16, 12, 0.35);
+}
+
+.detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.detail-title {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.detail-author {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+
+.detail-text {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  resize: vertical;
+  min-height: 120px;
+  white-space: pre-wrap;
+}
+
+textarea.detail-text:focus-visible {
+  outline: 2px solid var(--cork);
+  outline-offset: 1px;
+}
+
+.detail-text--readonly {
+  margin: 0;
+  color: var(--ink-soft);
+  background: var(--page);
+}
+
+.detail-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.detail-checklist-progress {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  background: var(--page);
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--ink-soft);
+}
+
+.detail-checklist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-checklist-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.detail-checklist-item label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.detail-checklist-item input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  accent-color: var(--cork);
+}
+
+.detail-checklist-item-text {
+  word-break: break-word;
+}
+
+.detail-checklist-item-text--done {
+  color: var(--ink-soft);
+  text-decoration: line-through;
+}
+
+.detail-checklist-remove {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  opacity: 0.5;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  flex-shrink: 0;
+}
+
+.detail-checklist-remove:hover {
+  opacity: 1;
+  color: var(--danger);
+}
+
+.detail-checklist-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.detail-checklist-add input {
+  flex: 1;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  min-width: 0;
+}
+
+.detail-actions {
+  display: flex;
+  justify-content: flex-end;
+}

@@ -46,3 +46,11 @@ export const BACKGROUNDS: readonly Background[] = [
 ]
 
 export const REACTIONS: readonly Reaction[] = ['✓', '👀', '🔥']
+
+/** Espejo del `Field(max_length=2000)` de `NoteCreateIn`/`NoteUpdateIn` en protocol.py
+ * y del CHECK "text_length" de la tabla notes (backend/app/models/note.py) -no es un
+ * catálogo, pero mismo criterio: un solo lugar, a mano, cambia junto con el backend.
+ * Usado por `features/notes/NoteDetail.tsx` para el `maxLength` del textarea de
+ * detalle. La creación rápida (`NoteComposer.tsx`) usa un tope propio más chico (280,
+ * pensado para un título corto), no este. */
+export const NOTE_TEXT_MAX_LENGTH = 2000

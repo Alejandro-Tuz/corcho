@@ -42,7 +42,7 @@ class Note(Base):
         CheckConstraint(
             "capacity IS NULL OR taken_count <= capacity", name="taken_count_le_capacity"
         ),
-        CheckConstraint("char_length(text) <= 500", name="text_length"),
+        CheckConstraint("char_length(text) <= 2000", name="text_length"),
         Index("ix_notes_room_id_status", "room_id", "status"),
     )
 
