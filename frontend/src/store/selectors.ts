@@ -4,7 +4,7 @@
  * que no exista un segundo lugar donde se pueda desincronizar de `notes`.
  */
 
-import type { NoteState, NoteStatus } from '../realtime/protocol'
+import type { NoteState, NoteStatus, ParticipantState } from '../realtime/protocol'
 
 /**
  * Orden de notas: `(created_at, id)` ascendente, no orden de llegada.
@@ -102,4 +102,53 @@ export function columnMinHeightPx(notes: Record<string, NoteState>, status: Note
     maxBottom = Math.max(maxBottom, note.position_y + NOTE_FOOTPRINT_PX)
   }
   return Math.max(COLUMN_MIN_HEIGHT_PX, maxBottom)
+}
+
+/**
+ * Buscar (`features/canvas/CanvasFocusContext.ts`): substring simple, sin acentos ni
+ * fuzzy matching, contra `note.text` CRUDO -no la prosa recortada que pinta la
+ * tarjeta (`checklistPreviewText` en `Note.tsx`). Como el checklist vive como
+ * markdown dentro del mismo campo (`lib/checklist.ts`), esto alcanza el contenido de
+ * los ítems gratis, sin parsear nada aparte.
+ *
+ * Query vacía/en blanco = "sin búsqueda activa": todo matchea. Así el llamador
+ * (`Note.tsx`) no necesita una rama aparte para "¿hay búsqueda o no?" -esta función
+ * ya lo resuelve, un solo lugar.
+ */
+export function noteMatchesSearch(note: NoteState, query: string): boolean {
+  const trimmed = query.trim().toLowerCase()
+  if (trimmed === '') return true
+  return note.text.toLowerCase().includes(trimmed)
+}
+
+/**
+ * Orden de la lista de participantes (`features/presence/ParticipantList.tsx`):
+ * conectados primero, después desconectados -pero TODOS presentes, a propósito: el
+ * snapshot ya trae a todo el que pasó por la sala porque sus notas siguen ahí
+ * (docstring de `RoomSnapshot` en protocol.py), y resaltar las notas de alguien que
+ * se desconectó hace un rato es igual de útil que resaltar las de alguien presente.
+ * Dentro de cada grupo, alfabético por nombre -sin un timestamp con sentido para
+ * "cuándo apareció esta persona en la lista" que valga la pena ordenar por él en vez
+ * de por nombre, a diferencia de `sortNotesByCreation`.
+ *
+ * Memoizado igual que `sortNotesByCreation`/`sortNotesByColumn`: mismo motivo,
+ * mismo patrón (el store nunca muta `participants` en el lugar).
+ */
+const participantOrderCache = new WeakMap<Record<string, ParticipantState>, ParticipantState[]>()
+
+export function sortParticipantsForList(
+  participants: Record<string, ParticipantState>,
+): ParticipantState[] {
+  const cached = participantOrderCache.get(participants)
+  if (cached !== undefined) return cached
+
+  const sorted = Object.values(participants).sort((a, b) => {
+    const aConnected = a.disconnected_at === null
+    const bConnected = b.disconnected_at === null
+    if (aConnected !== bConnected) return aConnected ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+
+  participantOrderCache.set(participants, sorted)
+  return sorted
 }

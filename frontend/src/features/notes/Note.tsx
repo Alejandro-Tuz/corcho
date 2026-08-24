@@ -8,6 +8,9 @@
  * decisión, dirección visual aprobada el día 3-. Este archivo solo decide QUÉ
  * clase e inline styles aplicar; nunca CÓMO se ve una clase.
  *
+ * `note-card--dimmed`: buscar y resaltar-a-una-persona (`CanvasFocusContext.ts`,
+ * ahí está el porqué completo de cómo se combinan los dos).
+ *
  * ## Arrastre consciente de columnas
  *
  * Con columnas (`features/canvas/Column.tsx`), una nota vive DENTRO del contenedor
@@ -53,6 +56,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
+import { useCanvasFocus } from '../canvas/CanvasFocusContext'
 import { throttle } from '../../realtime/throttle'
 import { AVATAR_EMOJI } from '../../lib/avatarEmoji'
 import { checklistProgress, parseChecklist, proseOnly } from '../../lib/checklist'
@@ -60,6 +64,7 @@ import { NOTE_COLOR_HEX } from '../../lib/noteColor'
 import { noteRotationDeg } from '../../lib/noteRotation'
 import { PARTICIPANT_COLOR_HEX } from '../../lib/participantColor'
 import { REACTIONS } from '../../lib/constants'
+import { noteMatchesSearch } from '../../store/selectors'
 import type { NoteStatus, ParticipantState, Reaction } from '../../realtime/protocol'
 import { NoteDetail } from './NoteDetail'
 import './Note.css'
@@ -137,6 +142,7 @@ export function Note({ noteId }: { noteId: string }) {
   )
   const author = useRoom((s) => (note === undefined ? undefined : s.participants[note.author_id]))
   const actions = useRoomActions()
+  const { searchQuery, highlightedParticipantId } = useCanvasFocus()
 
   const dragStateRef = useRef<DragState | null>(null)
   const [dragScreenPosition, setDragScreenPosition] = useState<{ x: number; y: number } | null>(
@@ -180,6 +186,14 @@ export function Note({ noteId }: { noteId: string }) {
   const checklistPreviewText = proseOnly(note.text) || (checklistItems[0]?.text ?? '')
   const checklistProgressCount = checklistProgress(checklistItems)
   const isPendingDelete = pending?.kind === 'delete'
+  // Buscar y resaltar (CanvasFocusContext): se combinan por intersección, nunca uno
+  // pisa al otro -atenuada si falla CUALQUIERA de los filtros activos. Un filtro
+  // inactivo (query vacía, nadie resaltado) "matchea siempre" y no aporta nada a la
+  // cuenta, ver docstring del contexto para el porqué completo.
+  const matchesSearch = noteMatchesSearch(note, searchQuery)
+  const matchesHighlight =
+    highlightedParticipantId === null || note.author_id === highlightedParticipantId
+  const isDimmed = !matchesSearch || !matchesHighlight
   const hasClaimed = myParticipantId !== null && note.claims.includes(myParticipantId)
   const isFull = note.capacity !== null && note.taken_count >= note.capacity
   const claimPending = pending?.kind === 'claim'
@@ -306,6 +320,7 @@ export function Note({ noteId }: { noteId: string }) {
     isGhost ? 'note-card--ghost' : '',
     isPendingDelete ? 'note-card--pending' : '',
     justLanded ? 'note-card--landed' : '',
+    isDimmed ? 'note-card--dimmed' : '',
   ]
     .filter((c) => c !== '')
     .join(' ')

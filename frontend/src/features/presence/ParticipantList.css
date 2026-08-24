@@ -1,0 +1,48 @@
+/**
+ * Chips de participante en la toolbar (`Canvas.tsx`). Mismo tratamiento del emoji
+ * que el chip de autor de una nota (`Note.css`, `.note-pin-icon`): grayscale sobre
+ * el color de participante, no la silueta blanca pura que probamos y descartamos en
+ * el pulido del día 3 -conserva el contraste interno del dibujo.
+ */
+
+.participant-list {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-left: 4px;
+}
+
+.participant-chip {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  transition: opacity 0.12s ease;
+}
+
+/* El grayscale va en el emoji, nunca en `.participant-chip`: ese elemento es
+   también el fondo de color -si el filtro lo tocara a él, se le iría el color al
+   círculo entero, no solo al ícono (mismo bug que ya evitó `.note-pin-icon` en
+   Note.css, mismo motivo acá). */
+.participant-chip-icon {
+  filter: grayscale(1) contrast(1.15);
+}
+
+.participant-chip--offline {
+  opacity: 0.4;
+}
+
+.participant-chip:hover {
+  opacity: 0.85;
+}
+
+.participant-chip[aria-pressed='true'] {
+  border-color: var(--ink);
+  opacity: 1;
+}

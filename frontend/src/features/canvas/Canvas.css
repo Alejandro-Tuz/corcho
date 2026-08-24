@@ -41,6 +41,43 @@
   border-color: var(--cork);
 }
 
+.canvas-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+}
+
+.canvas-search-input {
+  width: 140px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.canvas-search-input:focus-visible {
+  outline: 2px solid var(--cork);
+  outline-offset: 1px;
+}
+
+/* Sin resultados necesita decirse, no solo "verse igual que todo atenuado" -con
+   todas las notas ya atenuadas por buscar, cero coincidencias y "todavía no
+   escribí bien el término" se ven exactamente igual sin este aviso. */
+.canvas-search-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.canvas-search-count--empty {
+  color: var(--danger);
+}
+
 .canvas-status {
   margin-left: auto;
   font-family: var(--font-mono);

@@ -337,6 +337,53 @@ agregar una función o terminar bien una existente, terminar bien la existente.
     un `AudioContext` espiado, crear una nota propia no dispara el beep
     (`beepCount` se mantiene en 0); conectar una segunda persona sí lo dispara
     (`beepCount` pasa a 1).
+- **Buscar y resaltar-a-una-persona** (dos ítems de "Nuevo, aprobado", hechos juntos
+  a propósito: los dos son filtros de atención sobre el mismo lienzo y necesitan
+  convivir bien entre sí). Puro frontend, sin tocar el backend ni el protocolo.
+  - **Se combinan por intersección, nunca uno pisa al otro**: una nota queda a
+    opacidad normal solo si pasa TODOS los filtros activos. Buscar "demo" + resaltar
+    a Cande no es "todo lo de Cande más todo lo de demo" (unión) sino "las notas de
+    Cande que mencionan demo" (intersección) -verificado a mano contra el navegador
+    real: con los dos filtros activos, la propia nota de Cande que NO menciona
+    "demo" queda igual de atenuada que las de cualquier otra persona.
+  - **Atenuar, no ocultar, en los dos casos** -a propósito el mismo tratamiento en
+    ambos, para que combinarlos sea consistente ("ocultar Y atenuar" no significa
+    nada claro-. Ocultar además le cambia la forma al tablero mientras otra persona
+    lo sigue editando en vivo: una nota que "desaparece" se lee fácil como borrada,
+    no como filtrada.
+  - `features/canvas/CanvasFocusContext.ts`: `searchQuery`/`highlightedParticipantId`
+    NO entran a `RoomState` -no son estado de sala, son una preferencia de qué mirar
+    en esta pantalla, ni viajan por WS ni necesitan la reconciliación optimista que
+    sí necesita `RoomState`-. Mismo split que `RoomStoreContext.ts`/
+    `RoomStoreProvider` por la misma regla de `react-refresh` (un `.tsx` solo puede
+    exportar componentes), pero sin un archivo de Provider aparte: `Canvas.tsx` ya es
+    un componente propio, envolver su propio JSX con el `.Provider` no le agrega
+    ningún export nuevo.
+  - `store/selectors.ts`: `noteMatchesSearch` (substring simple, case-insensitive,
+    contra `note.text` CRUDO -alcanza el contenido del checklist gratis, ya vive como
+    markdown en el mismo campo, `lib/checklist.ts`) y `sortParticipantsForList`.
+  - **Contador junto al campo de búsqueda** ("3/8", o "sin coincidencias" en rojo si
+    da cero): sin esto, con todo ya atenuado, cero coincidencias se ve igual que
+    "todavía no escribí bien el término" -pedido explícito antes de escribir código.
+  - **La lista de participantes no existía** -se nos había pasado tenerla en algún
+    lado de la UI, aunque estaba en el alcance original ("quién está conectado
+    ahora")-. `features/presence/ParticipantList.tsx` la construye de cero: un chip
+    de avatar por participante en la toolbar. Muestra a TODOS los que pasaron por la
+    sala, no solo conectados -mismo motivo que `RoomSnapshot` ya trae a todos:
+    resaltar las notas de alguien desconectado hace un rato es igual de útil que las
+    de alguien presente-, desconectados con menos opacidad pero igual de
+    clickeables. Bug evitado por relectura del propio docstring de `Note.css`: el
+    grayscale del emoji va en un `<span>` interno (`.participant-chip-icon`), nunca
+    en el chip entero -si tocara el círculo de fondo, se le iría el color a todo el
+    chip, exactamente lo que ya advertía `.note-pin-icon` sobre el mismo error.
+  - **Resaltar a alguien que se desconecta mientras está resaltado: no pasa nada, a
+    propósito.** `highlightedParticipantId` es solo un id, ni `CanvasFocusContext.ts`
+    ni `applyPresenceLeft` lo tocan cuando esa persona se va. Ya está decidido que
+    resaltar a alguien desconectado es tan válido como a alguien presente -así que
+    la transición de conectado a desconectado MIENTRAS está resaltado no tiene motivo
+    para cambiar nada: sus notas eran igual de válidas para resaltar un segundo antes
+    de desconectarse que un segundo después. Se limpia con el mismo gesto de
+    siempre (clickearla de nuevo, o resaltar a otra persona).
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
@@ -411,26 +458,24 @@ este bloque-:
    columna, autor, quién tomó cada cupo, checklist parseado con `lib/checklist.ts`)
    y arma un string markdown, sin tocar el backend. Se descarga o se copia al
    portapapeles del lado del cliente.
-7. **Buscar.** Filtra notas por texto, checklist incluido -gratis, porque el
-   checklist ya vive como texto plano dentro de `note.text` (`lib/checklist.ts`): no
-   hace falta un parser aparte para que la búsqueda alcance el contenido de los
-   ítems. Puro frontend: término de búsqueda en estado local, filtro en
-   `store/selectors.ts`.
-8. **Seguir a una persona.** Clic en alguien de la lista de conectados y la vista
-   sigue su cursor. `presence.cursor` ya existe y ya se guarda en
-   `state.presence.cursors` -esto es un consumidor nuevo de un dato que ya viaja,
-   no un evento nuevo.
-9. **Resaltar las notas de alguien.** Clic en un participante, sus notas
-   (`note.author_id` igual al suyo) se destacan y el resto se atenúa. Puro
-   frontend, un id en estado local.
-10. **Atajos de teclado.** `N` nota nueva, `/` buscar, `Esc` cierra lo que esté
-    abierto (buscar, el composer, el detalle de una nota). `hooks/` ya tiene un
-    primer inquilino (`useNotificationSound.ts`, ver "Hecho"); esto sería el
-    segundo.
-11. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
-    cambiar la URL) se busca esa nota en el store una vez que llegó `room.snapshot`,
-    se resalta y la vista se centra en ella. Extiende el ruteo mínimo por path que
-    ya tiene `App.tsx`, sin librería nueva.
+7. **Seguir a una persona.** Clic en alguien de la lista de conectados
+   (`features/presence/ParticipantList.tsx`, construida para "resaltar", ver
+   "Hecho" -ya está, este ítem la reusa tal cual) y la vista sigue su cursor.
+   `presence.cursor` ya existe y ya se guarda en `state.presence.cursors` -esto es
+   un consumidor nuevo de un dato que ya viaja, no un evento nuevo. A diferencia de
+   resaltar, esto no tiene sentido para alguien desconectado -su cursor dejó de
+   actualizarse-, así que probablemente el click de "seguir" solo tenga que
+   ofrecerse para participantes conectados, o simplemente dejar de seguir en
+   cuanto `presence.left` llega para esa persona (a decidir cuando se aborde este
+   punto).
+8. **Atajos de teclado.** `N` nota nueva, `/` buscar, `Esc` cierra lo que esté
+   abierto (buscar, el composer, el detalle de una nota). `hooks/` ya tiene un
+   primer inquilino (`useNotificationSound.ts`, ver "Hecho"); esto sería el
+   segundo.
+9. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
+   cambiar la URL) se busca esa nota en el store una vez que llegó `room.snapshot`,
+   se resalta y la vista se centra en ella. Extiende el ruteo mínimo por path que
+   ya tiene `App.tsx`, sin librería nueva.
 
 **Regla para todo lo nuevo:** cero tablas nuevas, cero eventos de protocolo nuevos
 -salvo el resumen con IA (punto 5), que sí necesita uno para difundirse a toda la
@@ -558,11 +603,13 @@ corcho/
 │   │   │   └── activity.ts        formateo de la franja de actividad
 │   │   ├── features/
 │   │   │   ├── onboarding/   [x]  nombre + avatar + color
-│   │   │   ├── canvas/       [x]  lienzo, fondo (con patrones), columnas
+│   │   │   ├── canvas/       [x]  lienzo, fondo (con patrones), columnas, buscar
+│   │   │   │                      y resaltar (CanvasFocusContext.ts)
 │   │   │   ├── notes/        [x]  post-it, drag, cupos, reacciones, composer,
 │   │   │   │                      animación de caída y de aterrizaje, detalle
 │   │   │   │                      expandible con checklist (NoteDetail.tsx)
-│   │   │   ├── presence/     [x]  cursores remotos
+│   │   │   ├── presence/     [x]  cursores remotos, lista de participantes
+│   │   │   │                      (ParticipantList.tsx)
 │   │   │   ├── activity/     [x]  franja de eventos recientes
 │   │   │   └── chat/               no empezado -último en la lista, a propósito
 │   │   ├── components/            sin uso todavía -cada feature trae su propio CSS

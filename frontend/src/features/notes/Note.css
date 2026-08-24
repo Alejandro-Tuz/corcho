@@ -37,7 +37,8 @@
   transform: rotate(var(--note-rot, 0deg));
   transition:
     transform 0.15s ease,
-    box-shadow 0.15s ease;
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
 }
 
 .note-card::after {
@@ -93,6 +94,15 @@
 
 .note-card--pending {
   opacity: 0.45;
+}
+
+/* Buscar/resaltar (CanvasFocusContext.ts): más tenue que `--ghost`/`--pending`
+   -esas son transiciones cortas de UN gesto puntual (arrastre, borrado en curso),
+   esta puede quedar prendida un buen rato mientras alguien filtra el lienzo, así
+   que necesita distinguirse con más margen para que "no es esto" se lea de un
+   vistazo. */
+.note-card--dimmed {
+  opacity: 0.28;
 }
 
 @media (prefers-reduced-motion: reduce) {

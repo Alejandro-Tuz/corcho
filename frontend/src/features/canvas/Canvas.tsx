@@ -18,6 +18,13 @@
  * notificación acá -toda la lógica de cuándo sonar vive en
  * `hooks/useNotificationSound.ts`, este componente solo llama al hook y pinta el
  * ícono que corresponda.
+ *
+ * Dueño de `CanvasFocusContext` (buscar + resaltar-a-una-persona): arma los
+ * `useState` y provee el valor -ver el docstring de ese módulo para el porqué de
+ * que viva separado de `RoomStoreContext` y cómo se combinan los dos filtros. El
+ * contador junto al campo de búsqueda ("3/8", o "sin coincidencias" en 0) usa la
+ * misma `noteMatchesSearch` que `Note.tsx` para decidir su propia atenuación -un
+ * solo lugar que sabe qué es "matchear", no dos copias de ese criterio.
  */
 
 import { useMemo, useRef, useState } from 'react'
@@ -26,10 +33,13 @@ import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
 import { useNotificationSound } from '../../hooks/useNotificationSound'
 import { throttle } from '../../realtime/throttle'
 import { BACKGROUNDS } from '../../lib/constants'
+import { noteMatchesSearch } from '../../store/selectors'
 import { Activity } from '../activity/Activity'
 import { NoteComposer } from '../notes/NoteComposer'
+import { ParticipantList } from '../presence/ParticipantList'
 import { RemoteCursors } from '../presence/RemoteCursors'
 import { BACKGROUND_COLORS } from './backgroundColor'
+import { CanvasFocusContext } from './CanvasFocusContext'
 import { Column } from './Column'
 import { COLUMNS } from './columns'
 import type { ConnectionStatus } from '../../realtime/socket'
@@ -54,15 +64,22 @@ const STATUS_CLASS: Record<ConnectionStatus, string> = {
 export function Canvas() {
   const connectionStatus = useRoom((s) => s.connectionStatus)
   const background = useRoom((s) => s.background)
+  const notes = useRoom((s) => s.notes)
   const actions = useRoomActions()
   const { muted, toggleMuted } = useNotificationSound()
 
   const [composerOpen, setComposerOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [highlightedParticipantId, setHighlightedParticipantId] = useState<string | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const throttledSendCursor = useMemo(
     () => throttle(actions.sendCursor, CURSOR_BROADCAST_INTERVAL_MS),
     [actions],
   )
+
+  function toggleHighlight(participantId: string): void {
+    setHighlightedParticipantId((current) => (current === participantId ? null : participantId))
+  }
 
   if (connectionStatus === 'room_not_found') {
     return (
@@ -78,77 +95,110 @@ export function Canvas() {
     throttledSendCursor(e.clientX - rect.left, e.clientY - rect.top)
   }
 
+  const noteList = Object.values(notes)
+  const matchingNoteCount =
+    searchQuery.trim() === ''
+      ? noteList.length
+      : noteList.filter((n) => noteMatchesSearch(n, searchQuery)).length
+
   return (
-    <div>
-      <div className="canvas-toolbar">
-        <span className="canvas-brand">Corcho</span>
+    <CanvasFocusContext.Provider
+      value={{ searchQuery, setSearchQuery, highlightedParticipantId, toggleHighlight }}
+    >
+      <div>
+        <div className="canvas-toolbar">
+          <span className="canvas-brand">Corcho</span>
 
-        <button type="button" className="btn btn-primary" onClick={() => setComposerOpen(true)}>
-          + nota
-        </button>
+          <button type="button" className="btn btn-primary" onClick={() => setComposerOpen(true)}>
+            + nota
+          </button>
 
-        <div className="canvas-bg-picker">
-          <span className="canvas-bg-label">fondo</span>
-          {BACKGROUNDS.map((bg) => (
-            <button
-              key={bg}
-              type="button"
-              title={bg}
-              aria-pressed={bg === background}
-              className={bg === background ? 'canvas-bg-swatch canvas-bg-swatch--active' : 'canvas-bg-swatch'}
-              onClick={() => actions.setBackground(bg)}
-              style={{ background: BACKGROUND_COLORS[bg] }}
+          <div className="canvas-bg-picker">
+            <span className="canvas-bg-label">fondo</span>
+            {BACKGROUNDS.map((bg) => (
+              <button
+                key={bg}
+                type="button"
+                title={bg}
+                aria-pressed={bg === background}
+                className={bg === background ? 'canvas-bg-swatch canvas-bg-swatch--active' : 'canvas-bg-swatch'}
+                onClick={() => actions.setBackground(bg)}
+                style={{ background: BACKGROUND_COLORS[bg] }}
+              />
+            ))}
+          </div>
+
+          <ParticipantList />
+
+          <div className="canvas-search">
+            <input
+              type="search"
+              className="canvas-search-input"
+              placeholder="Buscar…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
-          ))}
+            {searchQuery.trim() !== '' && (
+              <span
+                className={
+                  matchingNoteCount === 0
+                    ? 'canvas-search-count canvas-search-count--empty'
+                    : 'canvas-search-count'
+                }
+              >
+                {matchingNoteCount === 0 ? 'sin coincidencias' : `${matchingNoteCount}/${noteList.length}`}
+              </span>
+            )}
+          </div>
+
+          <span className={`canvas-status ${STATUS_CLASS[connectionStatus]}`}>
+            {STATUS_LABEL[connectionStatus]}
+          </span>
+
+          <button
+            type="button"
+            className="canvas-mute-btn"
+            onClick={toggleMuted}
+            aria-pressed={muted}
+            aria-label={muted ? 'Activar sonido de notificaciones' : 'Silenciar notificaciones'}
+            title={muted ? 'Activar sonido de notificaciones' : 'Silenciar notificaciones'}
+          >
+            {muted ? <MutedIcon /> : <SpeakerIcon />}
+          </button>
         </div>
 
-        <span className={`canvas-status ${STATUS_CLASS[connectionStatus]}`}>
-          {STATUS_LABEL[connectionStatus]}
-        </span>
+        <Activity />
 
-        <button
-          type="button"
-          className="canvas-mute-btn"
-          onClick={toggleMuted}
-          aria-pressed={muted}
-          aria-label={muted ? 'Activar sonido de notificaciones' : 'Silenciar notificaciones'}
-          title={muted ? 'Activar sonido de notificaciones' : 'Silenciar notificaciones'}
+        <div
+          ref={canvasRef}
+          data-canvas-root
+          onPointerMove={handlePointerMove}
+          className="canvas-board"
+          style={{ background: BACKGROUND_COLORS[background] }}
         >
-          {muted ? <MutedIcon /> : <SpeakerIcon />}
-        </button>
+          {COLUMNS.map((col) => (
+            <Column key={col.status} status={col.status} label={col.label} />
+          ))}
+          <RemoteCursors />
+        </div>
+
+        <NoteComposer
+          open={composerOpen}
+          onClose={() => setComposerOpen(false)}
+          onCreate={(input) =>
+            actions.createNote({
+              kind: input.kind,
+              status: 'blocked',
+              text: input.text,
+              color: input.color,
+              positionX: randomOffset(),
+              positionY: randomOffset(),
+              capacity: input.capacity,
+            })
+          }
+        />
       </div>
-
-      <Activity />
-
-      <div
-        ref={canvasRef}
-        data-canvas-root
-        onPointerMove={handlePointerMove}
-        className="canvas-board"
-        style={{ background: BACKGROUND_COLORS[background] }}
-      >
-        {COLUMNS.map((col) => (
-          <Column key={col.status} status={col.status} label={col.label} />
-        ))}
-        <RemoteCursors />
-      </div>
-
-      <NoteComposer
-        open={composerOpen}
-        onClose={() => setComposerOpen(false)}
-        onCreate={(input) =>
-          actions.createNote({
-            kind: input.kind,
-            status: 'blocked',
-            text: input.text,
-            color: input.color,
-            positionX: randomOffset(),
-            positionY: randomOffset(),
-            capacity: input.capacity,
-          })
-        }
-      />
-    </div>
+    </CanvasFocusContext.Provider>
   )
 }
 
