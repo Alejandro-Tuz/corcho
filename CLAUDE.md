@@ -467,6 +467,28 @@ agregar una función o terminar bien una existente, terminar bien la existente.
     `showModal()`-, corregido igual. Verificado a mano en los dos: abrir con
     `N`/el botón, o con "Editar detalle", empieza a escribir directo, sin
     clickear el campo primero.
+- **Exportar el tablero a markdown.** Puro frontend, sin tocar el backend.
+  `store/exportMarkdown.ts` arma el string (reusa `sortNotesByColumn`,
+  `STATUS_LABELS` de `store/activity.ts` y el parseo de checklist de
+  `lib/checklist.ts` -un solo lugar para cada uno de esos tres criterios, no
+  copias nuevas); `lib/downloadFile.ts` dispara la descarga (`Blob` +
+  `<a download>` temporal, sin librería) y no sabe nada de notas ni de salas.
+  - Título de cada nota: primera línea de la prosa, o el primer ítem del
+    checklist si la nota es 100% checklist -mismo respaldo que ya usa la
+    tarjeta (`Note.tsx`, `checklistPreviewText`), para que el título acá sea
+    reconocible como la misma nota del lienzo. El checklist se exporta con la
+    sintaxis real (`- [ ]`/`- [x]`) -es la misma que ya vive dentro de
+    `note.text`, no hay nada que traducir.
+  - Cada bloque (nota/columna/documento) se arma como una lista de párrafos ya
+    completos y se une recién al final con `\n\n`, nunca con líneas vacías
+    sueltas arrastradas en un array unido con `\n` -con eso el espaciado queda
+    igual tenga o no contenido el bloque anterior (una columna vacía no deja
+    un salto de línea distinto al de una con notas).
+  - Verificado espiando `URL.createObjectURL` (sin disparar la descarga real
+    del navegador): nombre de archivo correcto
+    (`corcho-{slug}-{fecha}.md`), y el contenido -cupos con quién los tomó,
+    checklist con su progreso real, reacciones agrupadas por emoji con
+    nombres- coincide con lo que se ve en el lienzo.
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
@@ -537,11 +559,7 @@ este bloque-:
      `handlers.dispatch()` devuelva el evento de una -mismo cuidado que ya costó el
      primer bug de concurrencia del día 2: nunca bloquear el camino síncrono con
      algo lento.
-6. **Exportar el tablero a markdown.** Puro frontend: lee `RoomState` (notas por
-   columna, autor, quién tomó cada cupo, checklist parseado con `lib/checklist.ts`)
-   y arma un string markdown, sin tocar el backend. Se descarga o se copia al
-   portapapeles del lado del cliente.
-7. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
+6. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
    cambiar la URL) se busca esa nota en el store una vez que llegó `room.snapshot`,
    se resalta y la vista se centra en ella. Extiende el ruteo mínimo por path que
    ya tiene `App.tsx`, sin librería nueva.
@@ -669,7 +687,8 @@ corcho/
 │   │   │   ├── roomStore.ts       RoomCommands + RoomApplyActions
 │   │   │   ├── types.ts           RoomState, PendingNoteOp
 │   │   │   ├── selectors.ts       orden de notas, columnas, alto dinámico
-│   │   │   └── activity.ts        formateo de la franja de actividad
+│   │   │   ├── activity.ts        formateo de la franja de actividad
+│   │   │   └── exportMarkdown.ts  exportar el tablero a markdown
 │   │   ├── features/
 │   │   │   ├── onboarding/   [x]  nombre + avatar + color
 │   │   │   ├── canvas/       [x]  lienzo, fondo (con patrones), columnas, buscar,
@@ -687,7 +706,8 @@ corcho/
 │   │   └── lib/               [x] constantes, identity, colores, avatares, ids,
 │   │                               checklist en markdown (checklist.ts), sonido de
 │   │                               notificación (notificationSound.ts), foco de
-│   │                               teclado (domFocus.ts)
+│   │                               teclado (domFocus.ts), descarga de archivos
+│   │                               (downloadFile.ts)
 │   └── public/
 ├── .github/workflows/ci.yml [x]
 ├── docker-compose.yml       [x]
