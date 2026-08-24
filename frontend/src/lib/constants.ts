@@ -34,6 +34,15 @@ export const PARTICIPANT_COLORS: readonly ParticipantColor[] = [
 
 export const NOTE_COLORS: readonly NoteColor[] = ['yellow', 'pink', 'blue', 'green', 'orange']
 
-export const BACKGROUNDS: readonly Background[] = ['bone', 'warm_gray', 'sage', 'fog_blue', 'charcoal']
+export const BACKGROUNDS: readonly Background[] = [
+  'bone',
+  'warm_gray',
+  'sage',
+  'fog_blue',
+  'charcoal',
+  'dots_sage',
+  'dots_blue',
+  'dots_dark',
+]
 
 export const REACTIONS: readonly Reaction[] = ['✓', '👀', '🔥']

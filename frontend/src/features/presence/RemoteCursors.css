@@ -1,0 +1,21 @@
+.cursor-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--surface-raised);
+  transform: translate(-50%, -50%);
+}
+
+.cursor-label {
+  position: absolute;
+  left: 9px;
+  top: -8px;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 10.5px;
+  white-space: nowrap;
+  color: #fff;
+  background: var(--ink);
+  padding: 1px 6px;
+  border-radius: 999px;
+}

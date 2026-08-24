@@ -1,12 +1,125 @@
-/* Reset mínimo. Sin tipografía elegida, sin paleta de color propia -el pulido
-   visual es del día 3 (CLAUDE.md); hoy solo hace falta que nada se vea roto. */
+/**
+ * Tokens de diseño + reset global. Dirección visual aprobada el día 3: el lienzo
+ * es literalmente un corcho, así que la paleta parte de ahí (corcho cálido +
+ * salvia fría, ambos ya presentes como fondo de sala) en vez de una paleta
+ * genérica de app. Tres roles tipográficos, nunca mezclados entre sí:
+ *
+ * - `--font-hand` (Patrick Hand): SOLO el texto que alguien escribe en una nota
+ *   (`features/notes/Note.css`). Es lo único con personalidad de "escrito a
+ *   mano" -si la interfaz también lo usara para sus propias etiquetas, dejaría
+ *   de leerse como la voz de la persona y pasaría a ser una novedad tipográfica.
+ * - `--font-ui`: todo lo que la interfaz rotula (botones, columnas, franja de
+ *   actividad, formularios).
+ * - `--font-mono`: datos que se cuentan o se miden (cupos, hora, código de
+ *   sala) -`font-variant-numeric: tabular-nums` donde corresponda para que los
+ *   dígitos no salten de ancho.
+ *
+ * Sin modo oscuro: esta es una identidad visual fija, no una preferencia de
+ * sistema -el fondo oscuro (`charcoal`) es un color de SALA elegible desde la
+ * propia interfaz (bloque 3), no un tema de la interfaz que lo envuelve.
+ */
+
+:root {
+  --ink: #2a2420;
+  --ink-soft: #6b6155;
+  --page: #ede7da;
+  --surface: #f7f3ea;
+  --surface-raised: #fffdf8;
+  --line: #ded5c2;
+  --cork: #b8763f;
+  --cork-deep: #8f5a2c;
+  --sage: #6f8161;
+  --sage-deep: #566249;
+  --note-ink: #3a2f1e;
+  --danger: #b3492f;
+
+  --font-hand: 'Patrick Hand', 'Segoe Print', cursive;
+  --font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
 
 * {
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   min-height: 100svh;
-  font: 14px/1.4 system-ui, sans-serif;
+  background: var(--page);
+  color: var(--ink);
+  font: 15px/1.5 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--sage-deep);
+}
+
+/* --- botones compartidos: toolbar del lienzo, modal de creación, onboarding,
+   landing. Un solo lugar para no repetir el mismo `border-radius`/transición
+   suelto en cada feature. --- */
+
+.btn {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 13.5px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 8px 14px;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    transform 0.05s ease;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--cork);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--cork);
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: var(--cork);
+  border-color: var(--cork);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--cork-deep);
+  border-color: var(--cork-deep);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn {
+    transition: none;
+  }
 }

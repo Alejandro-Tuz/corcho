@@ -41,7 +41,9 @@ export function RoomPage({ room }: { room: string }) {
     return <Onboarding room={room} onComplete={setIdentity} />
   }
   if (store === null) {
-    return <p style={{ padding: 16 }}>conectando...</p>
+    return (
+      <p style={{ padding: 16, fontFamily: 'var(--font-ui)', color: 'var(--ink-soft)' }}>conectando...</p>
+    )
   }
 
   return (

@@ -4,9 +4,9 @@
  * en más, `Note.tsx` decide a qué columna se mueve según dónde se suelta el
  * arrastre -ver su docstring, es donde vive la parte interesante de columnas.
  *
- * Creación por `window.prompt()`, no un formulario: es la interacción más fea posible
- * a propósito -"funcionalidad primero, diseño después", CLAUDE.md- y evita construir
- * un modal para algo que el pulido del día 3 va a rehacer de cero.
+ * Creación por `NoteComposer` (pulido día 3): reemplaza los `window.prompt()` del
+ * día 2, que eran la interacción más fea posible a propósito ("funcionalidad
+ * primero, diseño después", CLAUDE.md).
  *
  * El cursor propio se manda desde acá (`onPointerMove` sobre el lienzo entero, no
  * por nota ni por columna) porque `presence.cursor` viaja en coordenadas del lienzo
@@ -15,23 +15,42 @@
  * de un fantasma ajeno a la pantalla de quien mira.
  */
 
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
 import { throttle } from '../../realtime/throttle'
 import { BACKGROUNDS } from '../../lib/constants'
+import { Activity } from '../activity/Activity'
+import { NoteComposer } from '../notes/NoteComposer'
 import { RemoteCursors } from '../presence/RemoteCursors'
 import { BACKGROUND_COLORS } from './backgroundColor'
 import { Column } from './Column'
 import { COLUMNS } from './columns'
+import type { ConnectionStatus } from '../../realtime/socket'
+import './Canvas.css'
 
 const CURSOR_BROADCAST_INTERVAL_MS = 50
+
+const STATUS_LABEL: Record<ConnectionStatus, string> = {
+  connecting: 'conectando',
+  connected: 'conectado',
+  reconnecting: 'reconectando',
+  room_not_found: 'sala inexistente',
+}
+
+const STATUS_CLASS: Record<ConnectionStatus, string> = {
+  connecting: 'canvas-status--connecting',
+  connected: 'canvas-status--connected',
+  reconnecting: 'canvas-status--connecting',
+  room_not_found: 'canvas-status--down',
+}
 
 export function Canvas() {
   const connectionStatus = useRoom((s) => s.connectionStatus)
   const background = useRoom((s) => s.background)
   const actions = useRoomActions()
 
+  const [composerOpen, setComposerOpen] = useState(false)
   const canvasRef = useRef<HTMLDivElement>(null)
   const throttledSendCursor = useMemo(
     () => throttle(actions.sendCursor, CURSOR_BROADCAST_INTERVAL_MS),
@@ -40,41 +59,10 @@ export function Canvas() {
 
   if (connectionStatus === 'room_not_found') {
     return (
-      <div style={{ padding: 16 }}>
+      <div className="canvas-empty">
         <p>Esta sala no existe.</p>
       </div>
     )
-  }
-
-  function handleCreateOwn(): void {
-    const text = window.prompt('Texto de la nota:')
-    if (text === null || text.trim() === '') return
-    actions.createNote({
-      kind: 'own',
-      status: 'blocked',
-      text: text.trim(),
-      color: 'yellow',
-      positionX: randomOffset(),
-      positionY: randomOffset(),
-      capacity: null,
-    })
-  }
-
-  function handleCreateShared(): void {
-    const text = window.prompt('Texto de la nota:')
-    if (text === null || text.trim() === '') return
-    const capacityRaw = window.prompt('¿Cuántos cupos?', '2')
-    const parsed = capacityRaw === null ? Number.NaN : Number.parseInt(capacityRaw, 10)
-    const capacity = Number.isFinite(parsed) && parsed > 0 ? parsed : 2
-    actions.createNote({
-      kind: 'shared',
-      status: 'blocked',
-      text: text.trim(),
-      color: 'blue',
-      positionX: randomOffset(),
-      positionY: randomOffset(),
-      capacity,
-    })
   }
 
   function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>): void {
@@ -85,53 +73,63 @@ export function Canvas() {
 
   return (
     <div>
-      <div style={{ padding: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button type="button" onClick={handleCreateOwn}>
-          + nota propia
-        </button>
-        <button type="button" onClick={handleCreateShared}>
-          + nota compartida
+      <div className="canvas-toolbar">
+        <span className="canvas-brand">Corcho</span>
+
+        <button type="button" className="btn btn-primary" onClick={() => setComposerOpen(true)}>
+          + nota
         </button>
 
-        <span style={{ marginLeft: 16 }}>fondo:</span>
-        {BACKGROUNDS.map((bg) => (
-          <button
-            key={bg}
-            type="button"
-            title={bg}
-            onClick={() => actions.setBackground(bg)}
-            style={{
-              width: 20,
-              height: 20,
-              padding: 0,
-              background: BACKGROUND_COLORS[bg],
-              border: bg === background ? '2px solid black' : '1px solid #999',
-            }}
-          />
-        ))}
+        <div className="canvas-bg-picker">
+          <span className="canvas-bg-label">fondo</span>
+          {BACKGROUNDS.map((bg) => (
+            <button
+              key={bg}
+              type="button"
+              title={bg}
+              aria-pressed={bg === background}
+              className={bg === background ? 'canvas-bg-swatch canvas-bg-swatch--active' : 'canvas-bg-swatch'}
+              onClick={() => actions.setBackground(bg)}
+              style={{ background: BACKGROUND_COLORS[bg] }}
+            />
+          ))}
+        </div>
 
-        <span style={{ marginLeft: 16 }}>({connectionStatus})</span>
+        <span className={`canvas-status ${STATUS_CLASS[connectionStatus]}`}>
+          {STATUS_LABEL[connectionStatus]}
+        </span>
       </div>
+
+      <Activity />
 
       <div
         ref={canvasRef}
         data-canvas-root
         onPointerMove={handlePointerMove}
-        style={{
-          position: 'relative',
-          display: 'flex',
-          width: '100%',
-          height: '82vh',
-          background: BACKGROUND_COLORS[background],
-          border: '1px solid #999',
-          overflow: 'visible',
-        }}
+        className="canvas-board"
+        style={{ background: BACKGROUND_COLORS[background] }}
       >
         {COLUMNS.map((col) => (
           <Column key={col.status} status={col.status} label={col.label} />
         ))}
         <RemoteCursors />
       </div>
+
+      <NoteComposer
+        open={composerOpen}
+        onClose={() => setComposerOpen(false)}
+        onCreate={(input) =>
+          actions.createNote({
+            kind: input.kind,
+            status: 'blocked',
+            text: input.text,
+            color: input.color,
+            positionX: randomOffset(),
+            positionY: randomOffset(),
+            capacity: input.capacity,
+          })
+        }
+      />
     </div>
   )
 }

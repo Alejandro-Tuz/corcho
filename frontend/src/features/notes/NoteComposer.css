@@ -1,0 +1,119 @@
+/**
+ * Modal de creación de nota (pulido día 3: reemplaza los `window.prompt()` del
+ * día 2, CLAUDE.md). `<dialog>` nativo -foco atrapado, `Esc` para cerrar,
+ * `::backdrop` gratis- así que no hace falta ninguna librería de modales para
+ * esto.
+ */
+
+.composer {
+  border: none;
+  border-radius: 16px;
+  padding: 0;
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: 0 24px 48px -16px rgba(20, 12, 4, 0.4);
+  width: min(360px, 92vw);
+}
+
+.composer::backdrop {
+  background: rgba(20, 16, 12, 0.35);
+}
+
+.composer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+}
+
+.composer-title {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.composer-kind {
+  display: flex;
+  gap: 6px;
+  background: var(--page);
+  border-radius: 999px;
+  padding: 3px;
+}
+
+.composer-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.composer-tab--active {
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(20, 12, 4, 0.12);
+}
+
+.composer-text {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  resize: vertical;
+  min-height: 64px;
+}
+
+.composer-text:focus-visible {
+  outline: 2px solid var(--cork);
+  outline-offset: 1px;
+}
+
+.composer-capacity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.composer-capacity input {
+  width: 64px;
+  font-family: var(--font-mono);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.composer-colors {
+  display: flex;
+  gap: 8px;
+}
+
+.composer-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.composer-swatch--active {
+  border-color: var(--ink);
+}
+
+.composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}

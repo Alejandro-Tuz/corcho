@@ -2,10 +2,15 @@
  * Cursores de los demás participantes -nunca el propio: ya está bajo el mouse de
  * quien mira su pantalla-. Un punto de color (`ParticipantColor`, la misma paleta que
  * el borde de nota fantasma -CLAUDE.md: "cursor, borde de nota fantasma, iniciales
- * del avatar" comparten paleta a propósito) más el nombre en texto al lado.
+ * del avatar" comparten paleta a propósito) más el nombre en una etiqueta al lado.
+ *
+ * La etiqueta usa tinta fija (`var(--ink)`) en vez del color de participante en el
+ * texto -pulido día 3: sobre las cinco opciones de fondo de sala, un texto de
+ * color variable puede volverse ilegible (el ámbar sobre hueso, por ejemplo); el
+ * punto ya identifica de quién es, la etiqueta solo necesita leerse.
  *
  * Sin ícono, sin animación de entrada/salida: un punto se mueve o no se mueve, no
- * hace falta más para que cumpla su función (día 3 decide si merece algo más).
+ * hace falta más para que cumpla su función.
  *
  * `presence.cursor` no tiene "salió del lienzo" en el protocolo (decisión ya tomada,
  * ver protocol.ts): si alguien saca el mouse del lienzo, su punto se queda quieto en
@@ -15,6 +20,7 @@
 
 import { useRoom } from '../../app/RoomStoreContext'
 import { PARTICIPANT_COLOR_HEX } from '../../lib/participantColor'
+import './RemoteCursors.css'
 
 export function RemoteCursors() {
   const cursors = useRoom((s) => s.presence.cursors)
@@ -32,36 +38,10 @@ export function RemoteCursors() {
           return (
             <div
               key={participantId}
-              style={{
-                position: 'absolute',
-                left: cursor.x,
-                top: cursor.y,
-                pointerEvents: 'none',
-              }}
+              style={{ position: 'absolute', left: cursor.x, top: cursor.y, pointerEvents: 'none' }}
             >
-              <div
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: '50%',
-                  background: color,
-                  transform: 'translate(-50%, -50%)',
-                }}
-              />
-              {participant !== undefined && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    left: 8,
-                    top: -6,
-                    fontSize: 11,
-                    whiteSpace: 'nowrap',
-                    color,
-                  }}
-                >
-                  {participant.name}
-                </span>
-              )}
+              <div className="cursor-dot" style={{ background: color }} />
+              {participant !== undefined && <span className="cursor-label">{participant.name}</span>}
             </div>
           )
         })}

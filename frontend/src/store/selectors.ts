@@ -77,3 +77,29 @@ export function sortNotesByColumn(notes: Record<string, NoteState>): Record<Note
   columnCache.set(notes, columns)
   return columns
 }
+
+/**
+ * Alto mínimo de una columna (pulido: el espacio de trabajo crece hacia abajo a
+ * medida que se acumulan notas, en vez de quedar fijo con las últimas
+ * desbordando sin scroll). Devuelve un número (`px`), no un objeto -no hace
+ * falta memoizar con `WeakMap` como arriba: `useRoomStore` compara por
+ * `Object.is`, y dos números iguales ya son iguales para esa comparación sin
+ * ayuda, a diferencia de un array u objeto nuevo en cada llamada.
+ *
+ * Estimación de "cuánto ocupa una nota debajo de su `position_y`" a propósito
+ * generosa y NO medida contra el DOM real -eso pediría un `ResizeObserver` por
+ * nota, que no paga para esto en tres días. En el peor caso (texto muy largo en
+ * una nota muy abajo) el post-it sobresale un poco del panel de su columna; no
+ * rompe nada, solo se ve un poco corto el panel.
+ */
+const NOTE_FOOTPRINT_PX = 260
+const COLUMN_MIN_HEIGHT_PX = 520
+
+export function columnMinHeightPx(notes: Record<string, NoteState>, status: NoteStatus): number {
+  let maxBottom = 0
+  for (const note of Object.values(notes)) {
+    if (note.status !== status) continue
+    maxBottom = Math.max(maxBottom, note.position_y + NOTE_FOOTPRINT_PX)
+  }
+  return Math.max(COLUMN_MIN_HEIGHT_PX, maxBottom)
+}

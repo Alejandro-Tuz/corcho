@@ -1,0 +1,94 @@
+.canvas-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  flex-wrap: wrap;
+  font-family: var(--font-ui);
+}
+
+.canvas-brand {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink);
+  margin-right: 6px;
+}
+
+.canvas-bg-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.canvas-bg-label {
+  font-size: 12px;
+  color: var(--ink-soft);
+  margin-right: 2px;
+}
+
+.canvas-bg-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.canvas-bg-swatch--active {
+  border-color: var(--cork);
+}
+
+.canvas-status {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.canvas-status--connected {
+  background: rgba(111, 129, 97, 0.18);
+  color: var(--sage-deep);
+}
+
+.canvas-status--connecting {
+  background: rgba(184, 118, 63, 0.18);
+  color: var(--cork-deep);
+}
+
+.canvas-status--down {
+  background: rgba(179, 73, 47, 0.18);
+  color: var(--danger);
+}
+
+/* Sin alto fijo a propósito: el espacio de trabajo tiene que crecer hacia abajo
+ * a medida que se acumulan notas (pulido), no quedar recortado a una altura de
+ * pantalla con las últimas notas desbordando sin scroll. `min-height` solo
+ * para que una sala vacía siga viéndose como un tablero real, no una tira
+ * angosta. Cada `.column` (Column.css) trae su propio alto mínimo -calculado
+ * a partir de dónde están sus notas más bajas, `columnMinHeightPx`- y, como
+ * este contenedor es un `flex` sin alto propio, termina siendo tan alto como
+ * la columna más alta de las tres.
+ */
+.canvas-board {
+  position: relative;
+  display: flex;
+  gap: 20px;
+  min-height: 60vh;
+  margin: 0 18px 18px;
+  padding: 18px;
+  border-radius: 18px;
+  box-sizing: border-box;
+  overflow: visible;
+}
+
+.canvas-empty {
+  padding: 24px;
+  font-family: var(--font-ui);
+  color: var(--ink-soft);
+}

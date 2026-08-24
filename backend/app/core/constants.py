@@ -30,10 +30,27 @@ ParticipantColor = Literal[*PARTICIPANT_COLORS]
 AVATARS: Final = ("fox", "penguin", "turtle", "owl", "bee", "whale", "hedgehog", "octopus")
 Avatar = Literal[*AVATARS]
 
-# Fondos del lienzo: colores sutiles, no patrones -un color se nota a distancia cuando
-# cambia en la otra pantalla, un patrón no-, sin selector libre (fuera de alcance).
-# hueso, gris cálido, salvia apagado, azul niebla, y uno oscuro para contraste.
-BACKGROUNDS: Final = ("bone", "warm_gray", "sage", "fog_blue", "charcoal")
+# Fondos del lienzo, sin selector libre (fuera de alcance). Cinco colores sólidos
+# -hueso, gris cálido, salvia, azul niebla, uno oscuro para contraste- más tres
+# variantes con patrón de lunares (pulido, día 3: la primera vuelta de esto fue
+# "colores sutiles, no patrones" a propósito -un color se nota a distancia, un
+# patrón no-, pero la diferencia de tono entre los cinco sólidos resultó
+# insuficiente en la práctica y se pidió explícitamente variedad con patrón;
+# los lunares se dibujan con contraste alto para no perder la idea original del
+# todo). Los tres nuevos son adiciones puras -ningún identificador existente
+# cambia- así que ninguna sala ya creada con un `background` viejo queda
+# inválida: la razón de no tener CHECK en Postgres para este campo es
+# exactamente poder sumar opciones así, sin migración.
+BACKGROUNDS: Final = (
+    "bone",
+    "warm_gray",
+    "sage",
+    "fog_blue",
+    "charcoal",
+    "dots_sage",
+    "dots_blue",
+    "dots_dark",
+)
 Background = Literal[*BACKGROUNDS]
 
 # Reacciones: fijas por el alcance. No es un catálogo visual, pero el mismo mecanismo

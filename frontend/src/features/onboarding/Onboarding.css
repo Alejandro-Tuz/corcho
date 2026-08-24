@@ -1,0 +1,120 @@
+.onboarding-shell {
+  min-height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.onboarding-card {
+  width: min(420px, 100%);
+  background: var(--surface-raised);
+  border-radius: 18px;
+  box-shadow: 0 24px 48px -20px rgba(20, 12, 4, 0.35);
+  padding: 28px 26px;
+}
+
+.onboarding-brand {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  font-size: 22px;
+  margin: 0 0 4px;
+}
+
+.onboarding-sub {
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  margin: 0 0 22px;
+}
+
+.onboarding-sub code {
+  font-family: var(--font-mono);
+  background: var(--page);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.onboarding-field {
+  display: block;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 18px;
+}
+
+.onboarding-name {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  font-family: var(--font-ui);
+  font-weight: 400;
+  font-size: 15px;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.onboarding-name:focus-visible {
+  outline: 2px solid var(--cork);
+  outline-offset: 1px;
+}
+
+.onboarding-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.onboarding-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: none;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* Mismo tratamiento que `.note-pin-icon` (Note.css, ver su comentario):
+ * `grayscale`, no `brightness(0) invert(1)` -esa versión aplanaba el animal a
+ * silueta pura y dejaba de reconocerse cuál era. Sobre el color de
+ * participante ya elegido, para previsualizar acá mismo cómo va a quedar el
+ * pin real en una nota. */
+.onboarding-avatar-icon {
+  filter: grayscale(1) contrast(1.15);
+  font-size: 22px;
+}
+
+.onboarding-avatar--active {
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+.onboarding-color {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.onboarding-color--active {
+  border-color: var(--ink);
+}
+
+.onboarding-submit {
+  width: 100%;
+  margin-top: 6px;
+  padding: 11px 14px;
+  font-size: 14.5px;
+}

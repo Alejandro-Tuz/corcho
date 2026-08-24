@@ -112,6 +112,21 @@ export interface TypingPresence {
   noteId: string | null
 }
 
+/**
+ * Un renglón ya formateado de la franja de actividad (bloque 4, `features/activity/`).
+ * Se arma en `store/activity.ts` en el momento en que cada `applyX` de
+ * `roomStore.ts` lo amerita -no todos los eventos entran, ver ese módulo-. `color`
+ * es el `ParticipantColor` de quien disparó el evento, para el punto de color en la
+ * franja; `null` en los pocos casos sin un autor claro a quien atribuírselo (p. ej.
+ * `room.background`, que no viaja con `participant_id`).
+ */
+export interface ActivityEntry {
+  id: string
+  at: string
+  text: string
+  color: ParticipantColor | null
+}
+
 export interface RoomState {
   slug: string | null
   name: string | null
@@ -129,6 +144,14 @@ export interface RoomState {
   /** Ya llegan ordenados cronológicamente desde `room.snapshot`
    * (`chat.list_messages`); los que se agregan en vivo se appendean al final. */
   chatMessages: ChatMessageState[]
+  /** Ventana acotada de los últimos eventos, más nuevo al final. Efímera igual que
+   * `presence`: `applyRoomSnapshot` la reinicia vacía, no sobrevive a una
+   * reconexión. */
+  activity: ActivityEntry[]
+  /** Foto de una nota ya borrada de `notes`, mientras `NoteFalling.tsx` la anima
+   * cayendo (pulido día 3). `roomStore.ts` la agrega en `applyNoteDelete` y la
+   * limpia sola con un timeout -ver el docstring de ese componente. */
+  fallingNotes: Record<string, NoteState>
 
   presence: {
     cursors: Record<string, CursorPresence>
@@ -149,6 +172,8 @@ export function createInitialState(): RoomState {
     pendingNoteOps: {},
     participants: {},
     chatMessages: [],
+    activity: [],
+    fallingNotes: {},
     presence: { cursors: {}, dragging: {}, drafting: {}, typing: {} },
   }
 }

@@ -5,9 +5,15 @@
  * no tener dos caminos que puedan desincronizarse). Acá solo se junta lo que hace
  * falta para mandar el primer `room.join`.
  *
- * Sin CSS elaborado a propósito (día 2: funcionalidad primero): avatar y color se
- * eligen de una lista de botones con el nombre en texto, no íconos ni swatches -esos
- * son pulido visual del día 3.
+ * Avatar y color como selectores visuales (pulido día 3): el catálogo de avatares
+ * se muestra como emoji (`avatarEmoji.ts`, sin traer íconos propios) pasado a
+ * blanco liso -mismo tratamiento que el pin de `Note.css`, para que no se
+ * sientan "simples emojis" sueltos- sobre el color de participante YA
+ * elegido, así la persona ve en el selector mismo cómo va a quedar su pin
+ * antes de entrar. El de colores usa los swatches reales de
+ * `PARTICIPANT_COLOR_HEX` -antes estos dos eran botones de puro texto con el
+ * nombre del valor, a propósito, para no construir esto dos veces (CLAUDE.md,
+ * día 2: "funcionalidad primero, diseño después").
  */
 
 import { useState } from 'react'
@@ -15,6 +21,9 @@ import type { FormEvent } from 'react'
 import type { Avatar, ParticipantColor } from '../../realtime/protocol'
 import type { StoredIdentity } from '../../lib/identity'
 import { AVATARS, PARTICIPANT_COLORS } from '../../lib/constants'
+import { AVATAR_EMOJI } from '../../lib/avatarEmoji'
+import { PARTICIPANT_COLOR_HEX } from '../../lib/participantColor'
+import './Onboarding.css'
 
 export function Onboarding({
   room,
@@ -35,54 +44,68 @@ export function Onboarding({
   }
 
   return (
-    <form onSubmit={handleSubmit} style={{ padding: 16, maxWidth: 480 }}>
-      <h1>Entrar a la sala {room}</h1>
+    <div className="onboarding-shell">
+      <form onSubmit={handleSubmit} className="onboarding-card">
+        <h1 className="onboarding-brand">Corcho</h1>
+        <p className="onboarding-sub">
+          Entrando a la sala <code>{room}</code>
+        </p>
 
-      <label>
-        Nombre
-        <br />
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          maxLength={40}
-          required
-          autoFocus
-        />
-      </label>
+        <label className="onboarding-field">
+          Nombre
+          <input
+            className="onboarding-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={40}
+            placeholder="¿Cómo te llamás?"
+            required
+            autoFocus
+          />
+        </label>
 
-      <fieldset style={{ marginTop: 12 }}>
-        <legend>Avatar</legend>
-        {AVATARS.map((a) => (
-          <button
-            key={a}
-            type="button"
-            onClick={() => setAvatar(a)}
-            aria-pressed={a === avatar}
-            style={{ fontWeight: a === avatar ? 'bold' : 'normal' }}
-          >
-            {a}
-          </button>
-        ))}
-      </fieldset>
+        <div className="onboarding-field">
+          Avatar
+          <div className="onboarding-grid" role="radiogroup" aria-label="Avatar">
+            {AVATARS.map((a) => (
+              <button
+                key={a}
+                type="button"
+                role="radio"
+                aria-checked={a === avatar}
+                aria-label={a}
+                className={a === avatar ? 'onboarding-avatar onboarding-avatar--active' : 'onboarding-avatar'}
+                style={{ background: PARTICIPANT_COLOR_HEX[color] }}
+                onClick={() => setAvatar(a)}
+              >
+                <span className="onboarding-avatar-icon">{AVATAR_EMOJI[a]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
-      <fieldset style={{ marginTop: 12 }}>
-        <legend>Color</legend>
-        {PARTICIPANT_COLORS.map((c) => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => setColor(c)}
-            aria-pressed={c === color}
-            style={{ fontWeight: c === color ? 'bold' : 'normal' }}
-          >
-            {c}
-          </button>
-        ))}
-      </fieldset>
+        <div className="onboarding-field">
+          Color
+          <div className="onboarding-grid" role="radiogroup" aria-label="Color">
+            {PARTICIPANT_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                role="radio"
+                aria-checked={c === color}
+                aria-label={c}
+                className={c === color ? 'onboarding-color onboarding-color--active' : 'onboarding-color'}
+                style={{ background: PARTICIPANT_COLOR_HEX[c] }}
+                onClick={() => setColor(c)}
+              />
+            ))}
+          </div>
+        </div>
 
-      <button type="submit" style={{ marginTop: 12 }}>
-        Entrar
-      </button>
-    </form>
+        <button type="submit" className="btn btn-primary onboarding-submit">
+          Entrar a la sala
+        </button>
+      </form>
+    </div>
   )
 }

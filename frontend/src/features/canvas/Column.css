@@ -1,0 +1,50 @@
+/**
+ * Panel de columna translúcido, no opaco a propósito: el fondo de sala elegido
+ * (bloque 3, `backgroundColor.ts`) tiene que seguir notándose "a distancia" por
+ * debajo -incluidas las columnas, no solo en los bordes del lienzo- o la función
+ * de fondo compartido no tendría casi superficie donde mostrarse. Un blanco
+ * cálido al 60% de opacidad deja pasar el color de fondo sin sacrificar
+ * legibilidad del texto encima, en las cinco opciones del catálogo.
+ */
+
+.column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 253, 248, 0.6);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(20, 12, 4, 0.05);
+}
+
+.column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--ink);
+  border-bottom: 1px solid rgba(42, 36, 32, 0.08);
+}
+
+.column-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+  background: rgba(42, 36, 32, 0.08);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.column-body {
+  /* Sin `flex: 1`: sin un alto forzado desde `.canvas-board` (Canvas.css) no
+   * habría "espacio disponible" del que crecer. El alto real lo trae
+   * `minHeight` inline (`columnMinHeightPx`, Column.tsx) -crece con las notas
+   * que tiene, no con lo que le sobre al hermano de al lado. */
+  position: relative;
+  padding: 10px;
+  overflow: visible;
+}

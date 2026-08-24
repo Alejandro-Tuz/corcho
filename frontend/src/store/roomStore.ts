@@ -79,6 +79,17 @@ import { saveIdentity } from '../lib/identity'
 import type { StoredIdentity } from '../lib/identity'
 import { createInitialState } from './types'
 import type { RoomApplyActions, RoomCommands, RoomState } from './types'
+import {
+  appendActivity,
+  BACKGROUND_LABELS,
+  noteKindLabel,
+  previewNoteText,
+  STATUS_LABELS,
+} from './activity'
+
+/** Un poco por encima de la duración de la animación CSS `note-fall`
+ * (Note.css) -ver el comentario en `applyNoteDelete`. */
+const FALLING_NOTE_DURATION_MS = 650
 
 export interface RoomStore {
   getState(): RoomState
@@ -280,7 +291,11 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
     // correlacionar un fallo de chat.message (ver CLAUDE.md, día 1: sin campo de
     // protocolo para eso, la red de seguridad es un timeout de reconciliación del
     // lado de features/chat cuando se construya -bloque 5, no hoy).
-    setState((s) => ({ ...s, chatMessages: [...s.chatMessages, message] }))
+    setState((s) => ({
+      ...s,
+      chatMessages: [...s.chatMessages, message],
+      activity: appendActivity(s.activity, `${me.name}: "${previewNoteText(text)}"`, me.color),
+    }))
     socket.send({ type: 'chat.message', id, note_id: noteId, text })
   }
 
@@ -412,6 +427,12 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
         pendingNoteOps: {},
         participants,
         chatMessages: event.chat_messages,
+        // Ventana de "lo que está pasando ahora", no un historial: reinicia vacía
+        // igual que `presence` efímera, un renglón de antes del corte no aporta
+        // nada una vez reconectado.
+        activity: [],
+        // Ídem: nadie sigue viendo caer una nota que se borró antes del corte.
+        fallingNotes: {},
         // Efímero, no sobrevive a una reconexión -nadie sigue arrastrando ni con el
         // cursor en el mismo lugar del otro lado tras un corte.
         presence: { cursors: {}, dragging: {}, drafting: {}, typing: {} },
@@ -426,7 +447,16 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
   }
 
   function applyPresenceJoined(event: PresenceJoined): void {
-    setState((s) => ({ ...s, participants: { ...s.participants, [event.id]: event } }))
+    setState((s) => ({
+      ...s,
+      participants: { ...s.participants, [event.id]: event },
+      // "se conectó" y no "se unió": este mismo evento cubre tanto la primera
+      // visita a la sala como una reconexión que reactiva una fila existente
+      // (ver decisión de reidentificación en CLAUDE.md) -no hay forma de
+      // distinguirlas desde acá, y ninguna de las dos frases sería exacta para
+      // la otra mitad de los casos.
+      activity: appendActivity(s.activity, `${event.name} se conectó a la sala`, event.color),
+    }))
   }
 
   function applyPresenceLeft(event: PresenceLeft): void {
@@ -448,16 +478,25 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
           drafting: omit(s.presence.drafting, event.participant_id),
           typing: omit(s.presence.typing, event.participant_id),
         },
+        activity: appendActivity(s.activity, `${current.name} se desconectó`, current.color),
       }
     })
   }
 
   function applyNoteCreate(event: NoteCreateOut): void {
-    setState((s) => ({
-      ...s,
-      notes: { ...s.notes, [event.id]: event },
-      pendingNoteOps: omit(s.pendingNoteOps, event.id),
-    }))
+    setState((s) => {
+      const author = s.participants[event.author_id]
+      return {
+        ...s,
+        notes: { ...s.notes, [event.id]: event },
+        pendingNoteOps: omit(s.pendingNoteOps, event.id),
+        activity: appendActivity(
+          s.activity,
+          `${author?.name ?? 'alguien'} creó ${noteKindLabel(event.kind)}: "${previewNoteText(event.text)}"`,
+          author?.color ?? null,
+        ),
+      }
+    })
   }
 
   function applyNoteUpdate(event: NoteUpdateOut): void {
@@ -495,6 +534,21 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
           ? omit(s.presence.dragging, current.author_id)
           : s.presence.dragging
 
+      // Solo deja renglón si CAMBIÓ de columna -reposicionar dentro de la misma
+      // columna pasa todo el tiempo y no es la clase de cosa que esta franja
+      // necesita anunciar (ver docstring de store/activity.ts). OJO acá: en la
+      // pantalla de quien arrastró, `current.status` YA es el nuevo valor -
+      // `moveNote` lo pisa de forma optimista antes de que esta confirmación
+      // llegue-, así que comparar contra `current.status` da un falso "no
+      // cambió" siempre que el propio autor sea quien mueve. El status de
+      // ANTES del arrastre, para quien lo inició, vive en `pending.restore`
+      // (docstring de `PendingNoteOp`); para cualquier otra pantalla -que
+      // nunca tocó esta nota de forma optimista- `current.status` sigue
+      // siendo el real.
+      const priorStatus = pending?.kind === 'move' ? pending.restore.status : current.status
+      const columnChanged = priorStatus !== event.status
+      const author = s.participants[current.author_id]
+
       return {
         ...s,
         notes: {
@@ -508,6 +562,13 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
         },
         pendingNoteOps: pending?.kind === 'move' ? omit(s.pendingNoteOps, event.id) : s.pendingNoteOps,
         presence: { ...s.presence, dragging },
+        activity: columnChanged
+          ? appendActivity(
+              s.activity,
+              `${author?.name ?? 'alguien'} movió "${previewNoteText(current.text)}" a ${STATUS_LABELS[event.status]}`,
+              author?.color ?? null,
+            )
+          : s.activity,
       }
     })
   }
@@ -521,11 +582,42 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
   // vale la pena más máquina para esto en tres días.
 
   function applyNoteDelete(event: NoteDeleteOut): void {
-    setState((s) => ({
-      ...s,
-      notes: omit(s.notes, event.id),
-      pendingNoteOps: omit(s.pendingNoteOps, event.id),
-    }))
+    let deletedNote: NoteState | undefined
+    setState((s) => {
+      // El autor y el texto hay que leerlos ANTES de sacar la nota de `notes` -una
+      // vez borrada no queda de dónde recuperarlos para el renglón de la franja.
+      const note = s.notes[event.id]
+      deletedNote = note
+      const author = note !== undefined ? s.participants[note.author_id] : undefined
+      return {
+        ...s,
+        notes: omit(s.notes, event.id),
+        pendingNoteOps: omit(s.pendingNoteOps, event.id),
+        // La nota sale de `notes` ya mismo (la fuente de verdad no puede seguir
+        // teniendo algo que el servidor ya borró), pero queda una foto acá para
+        // que `NoteFalling.tsx` la anime cayendo en vez de desaparecer de golpe
+        // -pulido día 3, CLAUDE.md. Se limpia sola con el timeout de abajo.
+        fallingNotes: note === undefined ? s.fallingNotes : { ...s.fallingNotes, [event.id]: note },
+        activity:
+          note === undefined
+            ? s.activity
+            : appendActivity(
+                s.activity,
+                `${author?.name ?? 'alguien'} borró una nota: "${previewNoteText(note.text)}"`,
+                author?.color ?? null,
+              ),
+      }
+    })
+    if (deletedNote !== undefined) {
+      // Un poco más que la duración de la animación CSS (`note-fall`,
+      // Note.css) para no cortarla a mitad de camino. Si la sala se cierra
+      // antes de que dispare, este `setTimeout` termina llamando a un
+      // `setState` sin listeners -inofensivo, no hay nada que limpiar del
+      // lado de un timeout que se dispara una sola vez.
+      setTimeout(() => {
+        setState((s) => ({ ...s, fallingNotes: omit(s.fallingNotes, event.id) }))
+      }, FALLING_NOTE_DURATION_MS)
+    }
   }
 
   function applyNoteClaim(event: NoteClaimOut): void {
@@ -544,10 +636,16 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
       // deshacer: su propio id le quedaba pegado en `claims` para siempre, viéndose
       // a sí misma con un cupo que en realidad nunca tuvo.
       const isMine = pending?.kind === 'claim' && event.participant_id === s.me?.participantId
+      const actor = s.participants[event.participant_id]
       return {
         ...s,
         notes: { ...s.notes, [event.note_id]: { ...current, taken_count: event.taken_count, claims } },
         pendingNoteOps: isMine ? omit(s.pendingNoteOps, event.note_id) : s.pendingNoteOps,
+        activity: appendActivity(
+          s.activity,
+          `${actor?.name ?? 'alguien'} tomó un cupo en "${previewNoteText(current.text)}"`,
+          actor?.color ?? null,
+        ),
       }
     })
   }
@@ -565,10 +663,16 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
       // Mismo bug que en applyNoteClaim: sin comparar participant_id, la suelta de
       // otra persona podía limpiar mi propio pending.
       const isMine = pending?.kind === 'release' && event.participant_id === s.me?.participantId
+      const actor = s.participants[event.participant_id]
       return {
         ...s,
         notes: { ...s.notes, [event.note_id]: { ...current, taken_count: event.taken_count, claims } },
         pendingNoteOps: isMine ? omit(s.pendingNoteOps, event.note_id) : s.pendingNoteOps,
+        activity: appendActivity(
+          s.activity,
+          `${actor?.name ?? 'alguien'} soltó un cupo en "${previewNoteText(current.text)}"`,
+          actor?.color ?? null,
+        ),
       }
     })
   }
@@ -596,10 +700,20 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
       // cualquier nota (sin autoría), así que este evento puede ser la reacción de
       // otra persona a la misma nota donde yo tengo un toggle propio en vuelo.
       const isMine = pending?.kind === 'reaction' && event.participant_id === s.me?.participantId
+      const actor = s.participants[event.participant_id]
       return {
         ...s,
         notes: { ...s.notes, [event.note_id]: { ...current, reactions } },
         pendingNoteOps: isMine ? omit(s.pendingNoteOps, event.note_id) : s.pendingNoteOps,
+        // Solo al activar: sacarse una reacción no aporta nada que mirar en la
+        // franja (docstring de store/activity.ts).
+        activity: event.active
+          ? appendActivity(
+              s.activity,
+              `${actor?.name ?? 'alguien'} reaccionó ${event.emoji} a "${previewNoteText(current.text)}"`,
+              actor?.color ?? null,
+            )
+          : s.activity,
       }
     })
   }
@@ -607,7 +721,21 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
   function applyChatMessage(event: ChatMessageOut): void {
     setState((s) => {
       const idx = s.chatMessages.findIndex((m) => m.id === event.id)
-      if (idx === -1) return { ...s, chatMessages: [...s.chatMessages, event] }
+      if (idx === -1) {
+        // Mensaje ajeno visto por primera vez -el propio ya dejó su renglón en
+        // `sendChatMessage`, optimista; este `idx !== -1` de abajo es justamente
+        // ESE eco, así que no duplica.
+        const author = s.participants[event.author_id]
+        return {
+          ...s,
+          chatMessages: [...s.chatMessages, event],
+          activity: appendActivity(
+            s.activity,
+            `${author?.name ?? 'alguien'}: "${previewNoteText(event.text)}"`,
+            author?.color ?? null,
+          ),
+        }
+      }
       const chatMessages = [...s.chatMessages]
       chatMessages[idx] = event // eco de mi propio mensaje optimista: se pisa con lo autoritativo
       return { ...s, chatMessages }
@@ -615,7 +743,13 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
   }
 
   function applyRoomBackground(event: RoomBackgroundOut): void {
-    setState((s) => ({ ...s, background: event.background }))
+    setState((s) => ({
+      ...s,
+      background: event.background,
+      // `room.background` no viaja con `participant_id` (protocol.ts): sin autor
+      // a quien atribuírselo, renglón sin punto de color.
+      activity: appendActivity(s.activity, `Fondo cambiado a ${BACKGROUND_LABELS[event.background]}`, null),
+    }))
   }
 
   function applyError(event: ErrorEvent): void {

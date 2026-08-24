@@ -3,6 +3,11 @@
  * -bloque 3- reacciones. Solo el autor arrastra o borra (autoría del backend,
  * `services/notes.py`); cualquiera reacciona o toma/suelta un cupo.
  *
+ * El aspecto (color sólido, esquina doblada plana, chip de autor, rotación fija
+ * por nota) vive en `Note.css` -ver su docstring para el porqué de cada
+ * decisión, dirección visual aprobada el día 3-. Este archivo solo decide QUÉ
+ * clase e inline styles aplicar; nunca CÓMO se ve una clase.
+ *
  * ## Arrastre consciente de columnas
  *
  * Con columnas (`features/canvas/Column.tsx`), una nota vive DENTRO del contenedor
@@ -19,12 +24,14 @@
  *   mouse dice bajo qué columna cayó (atributo `data-column-status` de
  *   `Column.tsx`). Ahí sí se calculan `position_x/y` relativos a ESA columna, y se
  *   manda `note.move` con esa posición y ese `status` en el mismo evento -exactamente
- *   lo que pide la decisión ya tomada-. `pointerEvents: 'none'` mientras se arrastra
+ *   lo que pide la decisión ya tomada. `pointerEvents: 'none'` mientras se arrastra
  *   para que `elementFromPoint` no encuentre a la nota misma bajo el mouse en vez de
  *   la columna -la captura del puntero (`setPointerCapture`) sigue entregando los
  *   eventos igual, así que esto no rompe nada del propio arrastre-.
  * - Cuando estable (nadie la arrastra): vuelve a `position: absolute` normal, dentro
- *   de su columna, con `position_x/y` tal cual las persiste el backend.
+ *   de su columna, con `position_x/y` tal cual las persiste el backend, y con su
+ *   rotación fija (`noteRotationDeg`) -sin rotación mientras se arrastra o como
+ *   fantasma: una nota "levantada" se endereza, es la misma seña que el hover.
  *
  * `document.querySelector` en vez de pasar refs por props/contexto: hay un solo
  * lienzo y tres columnas en toda la app en un momento dado, no se justifica la
@@ -43,15 +50,25 @@
  * `store/types.ts`-, no contra dónde arrancó el arrastre.
  */
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
 import { throttle } from '../../realtime/throttle'
+import { AVATAR_EMOJI } from '../../lib/avatarEmoji'
+import { NOTE_COLOR_HEX } from '../../lib/noteColor'
+import { noteRotationDeg } from '../../lib/noteRotation'
 import { PARTICIPANT_COLOR_HEX } from '../../lib/participantColor'
 import { REACTIONS } from '../../lib/constants'
-import type { NoteStatus, Reaction } from '../../realtime/protocol'
+import type { NoteStatus, ParticipantState, Reaction } from '../../realtime/protocol'
+import './Note.css'
 
 const DRAG_BROADCAST_INTERVAL_MS = 50
+/** Un poco por encima de la duración de la animación CSS `note-land` (Note.css). */
+const LANDING_ANIMATION_MS = 340
+
+/** Estilo con la custom property `--note-rot` -ver Note.css sobre por qué la
+ * rotación viaja como custom property y no como parte de `transform` inline. */
+type NoteStyle = CSSProperties & { '--note-rot'?: string }
 
 interface DragState {
   pointerId: number
@@ -70,6 +87,10 @@ function rectOf(selector: string): DOMRect | null {
   return document.querySelector(selector)?.getBoundingClientRect() ?? null
 }
 
+function authorMark(author: ParticipantState | undefined): string {
+  return author !== undefined ? AVATAR_EMOJI[author.avatar] : '❔'
+}
+
 export function Note({ noteId }: { noteId: string }) {
   const note = useRoom((s) => s.notes[noteId])
   const pending = useRoom((s) => s.pendingNoteOps[noteId])
@@ -78,9 +99,7 @@ export function Note({ noteId }: { noteId: string }) {
   const remoteDragging = useRoom((s) =>
     note === undefined ? undefined : s.presence.dragging[note.author_id],
   )
-  const draggerColor = useRoom((s) =>
-    note === undefined ? undefined : s.participants[note.author_id]?.color,
-  )
+  const author = useRoom((s) => (note === undefined ? undefined : s.participants[note.author_id]))
   const actions = useRoomActions()
 
   const dragStateRef = useRef<DragState | null>(null)
@@ -91,6 +110,28 @@ export function Note({ noteId }: { noteId: string }) {
     () => throttle(actions.sendDragging, DRAG_BROADCAST_INTERVAL_MS),
     [actions],
   )
+
+  // "Aterrizaje": un pulso breve cuando la nota CAMBIA de columna -para que se
+  // note el cambio tanto en la pantalla de quien arrastra como en la de
+  // cualquiera que esté mirando cuando llega la confirmación-, nunca al
+  // reposicionar dentro de la misma columna. Comparar contra un `status`
+  // guardado (no contra un valor fijo) es el patrón de React para "ajustar
+  // estado cuando algo cambió" sin `useEffect`: se ejecuta durante el render,
+  // React vuelve a renderizar antes de pintar, sin parpadeo. El valor inicial
+  // de `prevStatus` es el propio `status` de arranque -así una reconexión
+  // (`room.snapshot`) o el primer montaje nunca disparan el pulso por las
+  // dudas.
+  const [prevStatus, setPrevStatus] = useState(note?.status ?? null)
+  const [justLanded, setJustLanded] = useState(false)
+  if (note !== undefined && note.status !== prevStatus) {
+    setPrevStatus(note.status)
+    setJustLanded(true)
+  }
+  useEffect(() => {
+    if (!justLanded) return
+    const timeout = setTimeout(() => setJustLanded(false), LANDING_ANIMATION_MS)
+    return () => clearTimeout(timeout)
+  }, [justLanded])
 
   if (note === undefined) return null
 
@@ -188,7 +229,10 @@ export function Note({ noteId }: { noteId: string }) {
     actions.releaseNote(noteId)
   }
 
-  const ghostBorderColor = draggerColor !== undefined ? PARTICIPANT_COLOR_HEX[draggerColor] : '#666'
+  const pinColor = author !== undefined ? PARTICIPANT_COLOR_HEX[author.color] : '#999'
+  // Sin rotación mientras se arrastra o como fantasma: una nota "en el aire" se
+  // endereza, la misma seña visual que el hover (Note.css).
+  const rotationDeg = isDraggingLocally || isGhost ? 0 : noteRotationDeg(noteId)
 
   let positionStyle: CSSProperties
   if (isDraggingLocally) {
@@ -204,44 +248,65 @@ export function Note({ noteId }: { noteId: string }) {
     positionStyle = { position: 'absolute', left: note.position_x, top: note.position_y }
   }
 
+  const cardClass = [
+    'note-card',
+    isMine ? 'note-card--interactive' : '',
+    isGhost ? 'note-card--ghost' : '',
+    isPendingDelete ? 'note-card--pending' : '',
+    justLanded ? 'note-card--landed' : '',
+  ]
+    .filter((c) => c !== '')
+    .join(' ')
+
+  const cardStyle: NoteStyle = {
+    ...positionStyle,
+    background: NOTE_COLOR_HEX[note.color],
+    cursor: isMine ? 'grab' : 'default',
+    pointerEvents: isPendingDelete || isDraggingLocally || isGhost ? 'none' : 'auto',
+    // El fantasma se marca con un contorno del color de quien lo arrastra -no un
+    // `border`, que sumaría al box model y correría la esquina doblada-.
+    outline: isGhost ? `2px dashed ${pinColor}` : undefined,
+    outlineOffset: isGhost ? 2 : undefined,
+    '--note-rot': `${String(rotationDeg)}deg`,
+  }
+
   return (
     <div
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
-      style={{
-        ...positionStyle,
-        width: 160,
-        minHeight: 90,
-        border: isGhost ? `2px dashed ${ghostBorderColor}` : '1px solid #666',
-        background: '#ddd',
-        padding: 8,
-        boxSizing: 'border-box',
-        cursor: isMine ? 'grab' : 'default',
-        opacity: isPendingDelete ? 0.4 : isGhost ? 0.7 : 1,
-        pointerEvents: isPendingDelete || isDraggingLocally || isGhost ? 'none' : 'auto',
-      }}
+      className={cardClass}
+      style={cardStyle}
     >
-      <div>{note.text}</div>
+      <div className="note-pin">
+        <span className="note-pin-shadow" />
+        <span className="note-pin-head" style={{ background: pinColor }}>
+          <span className="note-pin-icon">{authorMark(author)}</span>
+        </span>
+      </div>
+      <span className="note-author">{author?.name ?? ''}</span>
+
+      <div className="note-text">{note.text}</div>
+
+      {note.kind === 'own' && <span className="note-kind-tag">propia</span>}
 
       {note.kind === 'shared' && (
-        <div>
-          <span>
-            {note.taken_count}/{note.capacity ?? 0} cupos
+        <div className="note-foot">
+          <span className="note-pill">
+            {note.taken_count}/{note.capacity ?? 0}
           </span>
           {hasClaimed ? (
-            <button type="button" onClick={handleRelease} disabled={releasePending}>
-              soltar cupo
+            <button type="button" className="note-claim-btn" onClick={handleRelease} disabled={releasePending}>
+              {releasePending ? '…' : 'soltar'}
             </button>
           ) : (
-            <button type="button" onClick={handleClaim} disabled={isFull || claimPending}>
-              tomar cupo
+            <button type="button" className="note-claim-btn" onClick={handleClaim} disabled={isFull || claimPending}>
+              {claimPending ? '…' : isFull ? 'completo' : 'tomar cupo'}
             </button>
           )}
         </div>
       )}
-      {note.kind === 'own' && <div>propia</div>}
 
       <ReactionBar
         noteId={noteId}
@@ -252,8 +317,15 @@ export function Note({ noteId }: { noteId: string }) {
       />
 
       {isMine && (
-        <button type="button" onClick={handleDelete} disabled={isPendingDelete}>
-          borrar
+        <button
+          type="button"
+          className="note-delete-btn"
+          onClick={handleDelete}
+          disabled={isPendingDelete}
+          aria-label="Borrar nota"
+          title="Borrar nota"
+        >
+          ×
         </button>
       )}
     </div>
@@ -274,7 +346,7 @@ function ReactionBar({
   onToggle: (noteId: string, emoji: Reaction) => void
 }) {
   return (
-    <div>
+    <div className="note-reacts">
       {REACTIONS.map((emoji) => {
         const reactors = reactions.filter((r) => r.emoji === emoji)
         const iReacted =
@@ -285,8 +357,8 @@ function ReactionBar({
             key={emoji}
             type="button"
             title={names}
+            className={iReacted ? 'note-react-chip note-react-chip--active' : 'note-react-chip'}
             onClick={() => onToggle(noteId, emoji)}
-            style={{ fontWeight: iReacted ? 'bold' : 'normal' }}
           >
             {emoji} {reactors.length > 0 ? reactors.length : ''}
           </button>

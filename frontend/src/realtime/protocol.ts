@@ -54,9 +54,18 @@ export type Avatar =
   | 'whale'
   | 'hedgehog'
   | 'octopus'
-// Colores sutiles, no patrones: hueso, gris cálido, salvia apagado, azul niebla, y uno
-// oscuro para contraste (espejo de BACKGROUNDS en constants.py).
-export type Background = 'bone' | 'warm_gray' | 'sage' | 'fog_blue' | 'charcoal'
+// Cinco sólidos (hueso, gris cálido, salvia, azul niebla, uno oscuro) + tres
+// variantes con lunares, sumadas en el pulido del día 3 (espejo de BACKGROUNDS
+// en constants.py -ver su comentario sobre por qué se sumaron patrones).
+export type Background =
+  | 'bone'
+  | 'warm_gray'
+  | 'sage'
+  | 'fog_blue'
+  | 'charcoal'
+  | 'dots_sage'
+  | 'dots_blue'
+  | 'dots_dark'
 export type Reaction = '✓' | '👀' | '🔥'
 
 export type NoteKind = 'own' | 'shared'
