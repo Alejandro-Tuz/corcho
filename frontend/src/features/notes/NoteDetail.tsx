@@ -148,6 +148,15 @@ export function NoteDetail({
       className="detail"
       onClose={handleDialogClose}
       onCancel={handleDialogClose}
+      // Bug real encontrado por el usuario: un portal escapa del DOM de la nota
+      // (ver docstring del módulo, por la rotación), pero React sigue burbujeando
+      // sus eventos sintéticos por el árbol de REACT, no por el DOM real -es
+      // comportamiento documentado de los portales, no un bug de React-. Este
+      // modal sigue siendo hijo de `Note` en ese árbol, así que sin cortar acá,
+      // cualquier `pointerdown` adentro (un checkbox, no solo los `<button>` que
+      // ya cubre la guarda de `Note.tsx`) le llegaba igual al handler de arrastre
+      // de la tarjeta de abajo y la nota empezaba a moverse debajo del modal.
+      onPointerDown={(e) => e.stopPropagation()}
     >
       <div className="detail-body">
         <div className="detail-header">

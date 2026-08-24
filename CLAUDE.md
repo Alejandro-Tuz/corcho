@@ -250,7 +250,7 @@ bien la existente.
     ancestro con `transform` pasa a ser el "containing block" de la capa
     superior -sin el portal, `showModal()` centraba el modal relativo a la nota
     rotada, no a la pantalla.
-  - Dos bugs reales encontrados probando el botón a mano: (1) el padding
+  - Tres bugs reales encontrados probando el botón a mano: (1) el padding
     inferior original de `.note-card` (10px) era menor que la franja de 20px+4px
     que ocupan los dos botones de esquina -el último contenido en flujo
     (`.note-reacts`) los tapaba por completo en notas con reacciones; subido a
@@ -259,7 +259,21 @@ bien la existente.
     -un `SVGElement` no es `HTMLElement`-, así que el primer botón de una nota
     con ícono SVG en vez de texto plano armaba un arrastre y se comía el click
     antes de que llegara a React. Corregido a `instanceof Element`, ancestro
-    común de HTML y SVG.
+    común de HTML y SVG. (3) Encontrado por el usuario probando la función:
+    tildar un checkbox del modal arrastraba la nota de fondo. Causa distinta a
+    (2) -esta vez el target SÍ era un elemento HTML (un `<input>`, no un botón,
+    así que la guarda de `handlePointerDown` no aplicaba de entrada)-: un
+    portal (`createPortal`, ver más arriba) saca al `<dialog>` del DOM de la
+    nota, pero React sigue burbujeando sus eventos sintéticos por el árbol de
+    REACT, no por el DOM real -comportamiento documentado de los portales, no
+    un bug de React-, y `NoteDetail` sigue siendo hijo de `Note` en ese árbol.
+    Cualquier `pointerdown` adentro del modal, sin importar sobre qué elemento,
+    le llegaba igual al handler de arrastre de la tarjeta de abajo. Corregido
+    cortando la propagación en la raíz del `<dialog>`
+    (`onPointerDown={(e) => e.stopPropagation()}`) en vez de seguir
+    parchando la guarda de `Note.tsx` elemento por elemento -la lista de qué
+    puede vivir adentro del modal (checkbox, textarea, inputs) puede crecer, y
+    esta solución no depende de enumerarla.
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
