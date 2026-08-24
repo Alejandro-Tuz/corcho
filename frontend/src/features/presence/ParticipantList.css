@@ -8,9 +8,16 @@
 .participant-list {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   flex-wrap: wrap;
   margin-left: 4px;
+}
+
+/* Contenedor relativo para el badge de seguir (`.participant-follow-btn`), que se
+   ancla a la esquina del chip -mismo patrón que los botones de esquina de una nota
+   (Note.css: expandir/borrar), a otra escala. */
+.participant-item {
+  position: relative;
 }
 
 .participant-chip {
@@ -45,4 +52,31 @@
 .participant-chip[aria-pressed='true'] {
   border-color: var(--ink);
   opacity: 1;
+}
+
+.participant-follow-btn {
+  position: absolute;
+  bottom: -3px;
+  right: -3px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1.5px solid var(--surface);
+  background: var(--surface);
+  color: var(--ink-soft);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.participant-follow-btn:hover {
+  color: var(--ink);
+}
+
+.participant-follow-btn[aria-pressed='true'] {
+  background: var(--cork);
+  border-color: var(--cork);
+  color: #fff;
 }

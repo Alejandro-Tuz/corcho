@@ -35,6 +35,23 @@
  * sus notas eran igual de válidas para resaltar un segundo antes de desconectarse
  * que un segundo después. Se limpia solo con el mismo gesto de siempre (clickearla
  * de nuevo en la lista) o resaltando a otra persona.
+ *
+ * ## `followedParticipantId`: control separado de resaltar, a propósito
+ *
+ * Los dos bullets del plan describían "clic en alguien de la lista" para las dos
+ * cosas, mismo gesto -pero no pueden serlo sin una excepción rara: resaltar ya
+ * funciona sobre cualquiera, conectado o no; seguir NO tiene sentido sobre alguien
+ * desconectado, no hay cursor que perseguir. Un solo click que hiciera las dos
+ * cosas cambiaría de comportamiento según el estado de la otra persona, sin ninguna
+ * señal visual de por qué. Por eso son dos controles en `ParticipantList.tsx`: el
+ * avatar sigue alternando resaltar para cualquiera; un ícono aparte, que solo
+ * aparece en participantes conectados, alterna seguir. Ninguno enciende al otro
+ * -click en el avatar nunca dispara seguir, click en seguir nunca fuerza el
+ * resaltado- para que cada control haga solo lo que dice y se combinen a mano si
+ * se quieren las dos cosas a la vez.
+ *
+ * El scroll en sí (a qué distancia, cuándo, cómo se corta con un gesto manual) vive
+ * en `hooks/useFollowScroll.ts` -acá solo el id de a quién se sigue y el toggle.
  */
 
 import { createContext, useContext } from 'react'
@@ -44,6 +61,8 @@ export interface CanvasFocusValue {
   setSearchQuery: (query: string) => void
   highlightedParticipantId: string | null
   toggleHighlight: (participantId: string) => void
+  followedParticipantId: string | null
+  toggleFollow: (participantId: string) => void
 }
 
 export const CanvasFocusContext = createContext<CanvasFocusValue | null>(null)

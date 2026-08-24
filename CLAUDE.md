@@ -384,6 +384,49 @@ agregar una función o terminar bien una existente, terminar bien la existente.
     para cambiar nada: sus notas eran igual de válidas para resaltar un segundo antes
     de desconectarse que un segundo después. Se limpia con el mismo gesto de
     siempre (clickearla de nuevo, o resaltar a otra persona).
+- **Seguir a una persona.** Puro frontend, sin tocar el backend ni el protocolo.
+  - **Control separado de resaltar, a propósito** -no el mismo click-: resaltar ya
+    funciona sobre cualquiera, conectado o no; seguir no tiene sentido sobre alguien
+    desconectado, no hay cursor que perseguir. Un click que hiciera las dos cosas
+    cambiaría de comportamiento según el estado de la otra persona sin ninguna señal
+    visual de por qué. `ParticipantList.tsx` ahora tiene dos controles por
+    participante: el avatar entero sigue alternando resaltar (para cualquiera); un
+    ícono chico en la esquina, SOLO en conectados, alterna seguir. Ninguno enciende
+    al otro.
+  - `hooks/useFollowScroll.ts`. Vertical solamente -el lienzo crece hacia abajo con
+    las tres columnas fijas de hoy, no hacia los costados-.
+  - **Se corta solo cuando la persona seguida se desconecta, siguiendo
+    `participant.disconnected_at`** -NO la ausencia de una entrada en
+    `presence.cursors`, que fue el primer borrador y tenía un falso positivo real:
+    alguien recién conectado que todavía no movió el mouse tampoco tiene esa entrada
+    todavía, así que con esa señal el seguimiento se cortaba solo un instante
+    después de arrancarlo. `disconnected_at` no tiene ese problema y sigue siendo
+    "derivar de estado que ya existe", no escuchar `presence.left` aparte.
+  - **El scroll no se pisa a sí mismo, sin apostar a que un intervalo fijo dure más
+    que la animación real** (`presence.cursor` llega cada 50ms, un smooth scroll
+    real tarda 300-500ms): `scrollInFlightRef` marca la condición real -pasa a
+    `true` al pedir un `scrollTo`, solo vuelve a `false` cuando el evento nativo
+    `scrollend` confirma que terminó, con un `setTimeout` de respaldo por si no
+    llega a dispararse-. Mientras esté en `true`, ningún tick pide otro `scrollTo`,
+    sin importar cuánto haya tardado el anterior en la práctica. Tampoco scrollea si
+    no hace falta: solo si el cursor salió de una zona muerta central (40% del alto
+    de la ventana).
+  - **Cortar al primer scroll manual, incluida la barra lateral del navegador**:
+    `wheel`/`touchmove`/teclas de scroll (con el foco fuera de un campo de texto)
+    cortan directo, este código nunca los dispara. Arrastrar la barra lateral no
+    dispara ninguno de esos -por eso además se escucha `scroll` en sí, y si llega
+    mientras `scrollInFlightRef` está en `false` (ningún `scrollTo` propio corriendo
+    en ese momento), no fui yo: corta. Hueco conocido, no blindado a propósito: si
+    alguien agarra la barra justo en la ventana de 300-500ms en que un `scrollTo`
+    propio sigue animando, ese arrastre puntual no corta hasta que esa animación
+    termine -`wheel`/`touchmove`/teclado siguen cortando igual, ninguno depende de
+    la bandera-.
+  - Verificado con dos pestañas de verdad: `scrollTo` espiado confirma que no se
+    pisa a sí mismo (una llamada por movimiento real del cursor seguido, nunca una
+    por cada tick de 50ms) y que el navegador clampea solo al máximo scrolleable del
+    documento. Un scroll manual (rueda) corta el seguimiento al toque. Cerrar la
+    pestaña de la persona seguida corta el seguimiento y hace desaparecer su ícono
+    de seguir de la lista -sigue resaltable, ahora "(desconectado)".
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
@@ -458,21 +501,11 @@ este bloque-:
    columna, autor, quién tomó cada cupo, checklist parseado con `lib/checklist.ts`)
    y arma un string markdown, sin tocar el backend. Se descarga o se copia al
    portapapeles del lado del cliente.
-7. **Seguir a una persona.** Clic en alguien de la lista de conectados
-   (`features/presence/ParticipantList.tsx`, construida para "resaltar", ver
-   "Hecho" -ya está, este ítem la reusa tal cual) y la vista sigue su cursor.
-   `presence.cursor` ya existe y ya se guarda en `state.presence.cursors` -esto es
-   un consumidor nuevo de un dato que ya viaja, no un evento nuevo. A diferencia de
-   resaltar, esto no tiene sentido para alguien desconectado -su cursor dejó de
-   actualizarse-, así que probablemente el click de "seguir" solo tenga que
-   ofrecerse para participantes conectados, o simplemente dejar de seguir en
-   cuanto `presence.left` llega para esa persona (a decidir cuando se aborde este
-   punto).
-8. **Atajos de teclado.** `N` nota nueva, `/` buscar, `Esc` cierra lo que esté
-   abierto (buscar, el composer, el detalle de una nota). `hooks/` ya tiene un
-   primer inquilino (`useNotificationSound.ts`, ver "Hecho"); esto sería el
-   segundo.
-9. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
+7. **Atajos de teclado.** `N` nota nueva, `/` buscar, `Esc` cierra lo que esté
+   abierto (buscar, el composer, el detalle de una nota). `hooks/` ya tiene dos
+   inquilinos (`useNotificationSound.ts`, `useFollowScroll.ts`, ver "Hecho"); esto
+   sería el tercero.
+8. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
    cambiar la URL) se busca esa nota en el store una vez que llegó `room.snapshot`,
    se resalta y la vista se centra en ella. Extiende el ruteo mínimo por path que
    ya tiene `App.tsx`, sin librería nueva.
@@ -603,8 +636,8 @@ corcho/
 │   │   │   └── activity.ts        formateo de la franja de actividad
 │   │   ├── features/
 │   │   │   ├── onboarding/   [x]  nombre + avatar + color
-│   │   │   ├── canvas/       [x]  lienzo, fondo (con patrones), columnas, buscar
-│   │   │   │                      y resaltar (CanvasFocusContext.ts)
+│   │   │   ├── canvas/       [x]  lienzo, fondo (con patrones), columnas, buscar,
+│   │   │   │                      resaltar y seguir (CanvasFocusContext.ts)
 │   │   │   ├── notes/        [x]  post-it, drag, cupos, reacciones, composer,
 │   │   │   │                      animación de caída y de aterrizaje, detalle
 │   │   │   │                      expandible con checklist (NoteDetail.tsx)
@@ -613,7 +646,7 @@ corcho/
 │   │   │   ├── activity/     [x]  franja de eventos recientes
 │   │   │   └── chat/               no empezado -último en la lista, a propósito
 │   │   ├── components/            sin uso todavía -cada feature trae su propio CSS
-│   │   ├── hooks/             [x] useNotificationSound.ts -primer inquilino-
+│   │   ├── hooks/             [x] useNotificationSound.ts, useFollowScroll.ts
 │   │   └── lib/               [x] constantes, identity, colores, avatares, ids,
 │   │                               checklist en markdown (checklist.ts), sonido de
 │   │                               notificación (notificationSound.ts)

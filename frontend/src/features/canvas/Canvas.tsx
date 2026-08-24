@@ -19,17 +19,21 @@
  * `hooks/useNotificationSound.ts`, este componente solo llama al hook y pinta el
  * ícono que corresponda.
  *
- * Dueño de `CanvasFocusContext` (buscar + resaltar-a-una-persona): arma los
+ * Dueño de `CanvasFocusContext` (buscar + resaltar-a-una-persona + seguir): arma los
  * `useState` y provee el valor -ver el docstring de ese módulo para el porqué de
- * que viva separado de `RoomStoreContext` y cómo se combinan los dos filtros. El
- * contador junto al campo de búsqueda ("3/8", o "sin coincidencias" en 0) usa la
- * misma `noteMatchesSearch` que `Note.tsx` para decidir su propia atenuación -un
- * solo lugar que sabe qué es "matchear", no dos copias de ese criterio.
+ * que viva separado de `RoomStoreContext`, cómo se combinan buscar/resaltar, y por
+ * qué seguir es un control aparte de resaltar en vez del mismo click. El contador
+ * junto al campo de búsqueda ("3/8", o "sin coincidencias" en 0) usa la misma
+ * `noteMatchesSearch` que `Note.tsx` para decidir su propia atenuación -un solo
+ * lugar que sabe qué es "matchear", no dos copias de ese criterio. El scroll de
+ * seguir en sí vive en `hooks/useFollowScroll.ts`, invocado acá porque este
+ * componente ya tiene `followedParticipantId` a mano.
  */
 
 import { useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
+import { useFollowScroll } from '../../hooks/useFollowScroll'
 import { useNotificationSound } from '../../hooks/useNotificationSound'
 import { throttle } from '../../realtime/throttle'
 import { BACKGROUNDS } from '../../lib/constants'
@@ -71,6 +75,7 @@ export function Canvas() {
   const [composerOpen, setComposerOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [highlightedParticipantId, setHighlightedParticipantId] = useState<string | null>(null)
+  const [followedParticipantId, setFollowedParticipantId] = useState<string | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const throttledSendCursor = useMemo(
     () => throttle(actions.sendCursor, CURSOR_BROADCAST_INTERVAL_MS),
@@ -80,6 +85,12 @@ export function Canvas() {
   function toggleHighlight(participantId: string): void {
     setHighlightedParticipantId((current) => (current === participantId ? null : participantId))
   }
+
+  function toggleFollow(participantId: string): void {
+    setFollowedParticipantId((current) => (current === participantId ? null : participantId))
+  }
+
+  useFollowScroll(followedParticipantId, () => setFollowedParticipantId(null))
 
   if (connectionStatus === 'room_not_found') {
     return (
@@ -103,7 +114,14 @@ export function Canvas() {
 
   return (
     <CanvasFocusContext.Provider
-      value={{ searchQuery, setSearchQuery, highlightedParticipantId, toggleHighlight }}
+      value={{
+        searchQuery,
+        setSearchQuery,
+        highlightedParticipantId,
+        toggleHighlight,
+        followedParticipantId,
+        toggleFollow,
+      }}
     >
       <div>
         <div className="canvas-toolbar">
