@@ -13,11 +13,17 @@
  * completo, no de una columna -no hace falta esa precisión para un cursor-.
  * `data-canvas-root` es el mismo gancho que usa `Note.tsx` para convertir la posición
  * de un fantasma ajeno a la pantalla de quien mira.
+ *
+ * El botón de silencio de la toolbar es la única parte visible del sonido de
+ * notificación acá -toda la lógica de cuándo sonar vive en
+ * `hooks/useNotificationSound.ts`, este componente solo llama al hook y pinta el
+ * ícono que corresponda.
  */
 
 import { useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
+import { useNotificationSound } from '../../hooks/useNotificationSound'
 import { throttle } from '../../realtime/throttle'
 import { BACKGROUNDS } from '../../lib/constants'
 import { Activity } from '../activity/Activity'
@@ -49,6 +55,7 @@ export function Canvas() {
   const connectionStatus = useRoom((s) => s.connectionStatus)
   const background = useRoom((s) => s.background)
   const actions = useRoomActions()
+  const { muted, toggleMuted } = useNotificationSound()
 
   const [composerOpen, setComposerOpen] = useState(false)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -98,6 +105,17 @@ export function Canvas() {
         <span className={`canvas-status ${STATUS_CLASS[connectionStatus]}`}>
           {STATUS_LABEL[connectionStatus]}
         </span>
+
+        <button
+          type="button"
+          className="canvas-mute-btn"
+          onClick={toggleMuted}
+          aria-pressed={muted}
+          aria-label={muted ? 'Activar sonido de notificaciones' : 'Silenciar notificaciones'}
+          title={muted ? 'Activar sonido de notificaciones' : 'Silenciar notificaciones'}
+        >
+          {muted ? <MutedIcon /> : <SpeakerIcon />}
+        </button>
       </div>
 
       <Activity />
@@ -136,4 +154,30 @@ export function Canvas() {
 
 function randomOffset(): number {
   return 20 + Math.random() * 150
+}
+
+// SVG inline, no un glifo de fuente -mismo motivo que ExpandIcon/CheckIcon en
+// Note.tsx: un carácter como "🔇"/"🔊" corre el mismo riesgo de tofu en algunas
+// plataformas que ya corren los emoji de avatar, evitable a mano sin costo.
+function SpeakerIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="14" height="14" fill="none" aria-hidden="true">
+      <path d="M3 8v4h3l4 3V5L6 8H3z" fill="currentColor" />
+      <path
+        d="M13.5 7a4 4 0 0 1 0 6M15.7 5a7 7 0 0 1 0 10"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function MutedIcon() {
+  return (
+    <svg viewBox="0 0 20 20" width="14" height="14" fill="none" aria-hidden="true">
+      <path d="M3 8v4h3l4 3V5L6 8H3z" fill="currentColor" />
+      <path d="M13 7l5 5M18 7l-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
 }

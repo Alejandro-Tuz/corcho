@@ -276,6 +276,67 @@ agregar una función o terminar bien una existente, terminar bien la existente.
     parchando la guarda de `Note.tsx` elemento por elemento -la lista de qué
     puede vivir adentro del modal (checkbox, textarea, inputs) puede crecer, y
     esta solución no depende de enumerarla.
+- **`scripts/seed.py`** (comprometido #1 de "Siguiente"): sala precargada para la demo.
+  Reusa los servicios reales (`rooms.join_room`/`mark_disconnected`, `notes.create_note`,
+  `claims.take`, `notes.toggle_reaction`) en vez de insertar filas a mano -mismo motivo
+  que un test de integración: si la lógica de negocio cambia, el seed no puede quedar
+  desincronizado de ella-. 4 participantes ficticios, creados y marcados desconectados
+  de una (`mark_disconnected`, para que la sala no se vea con gente "conectada" que en
+  realidad no tiene socket abierto). 8 notas repartidas en las tres columnas, variadas a
+  propósito: checklist en 0%, ~33%, 50% y 100% de progreso (markdown dentro de `text`,
+  misma convención de `lib/checklist.ts`), cupos vacíos/a medio llenar/completos, un
+  puñado de reacciones. 5 mensajes de chat -aunque el chat todavía no tiene UI (`Siguiente`
+  #6): la tabla ya existe y `room.snapshot` ya los incluye, así que sembrarlos no cuesta
+  nada y deja lista esa parte para cuando el chat se construya.
+  - Los mensajes de chat son la única pieza que NO pasa por `services.chat.create_message`:
+    se arman directo con el modelo `ChatMessage`, con un `created_at` explícito y
+    creciente por mensaje. Motivo: el propio `create_message` deja el timestamp al
+    `server_default=func.now()` de Postgres, que se congela una vez por transacción, no
+    por sentencia -ya documentado en `chat.list_messages`, y la razón por la que ese
+    docstring dice explícitamente "`scripts/seed.py` tiene que tenerlo presente". Un
+    `created_at` explícito por fila esquiva el problema del todo, sin depender de
+    comittear entre mensaje y mensaje.
+  - Bug real encontrado al mirar el resultado en el navegador: los primeros
+    `position_x`/`position_y` usaban un paso vertical de 180px entre notas de la misma
+    columna, pero una tarjeta con cupos + chip de checklist + reacciones a la vez mide
+    más que el `min-height` base de `.note-card` (132px) -la nota de abajo tapaba la
+    esquina de la de arriba en la columna con más notas ("En curso", 4). Subido a 240px,
+    verificado visualmente contra el navegador real tras resembrar.
+  - Bug encontrado antes de llegar a correrlo, por lectura: los catálogos de
+    `core/constants.py`/`protocol.py` (`Avatar`, `NoteColor`, `ParticipantColor`,
+    `Reaction`, `NoteKind`, `NoteStatus`) son `Literal[...]`, no clases ni `Enum` -el
+    primer borrador los "casteaba" llamándolos como si fueran constructores
+    (`Avatar(data["avatar"])`), que revienta con `TypeError` al ejecutarse: un
+    `typing.Literal` no es invocable. Corregido pasando los strings del catálogo
+    directo, sin envoltorio -son literales de por sí, no hace falta "construir" nada.
+- **Sonido de notificación con botón de silencio** (comprometido #1 de "Siguiente",
+  estaba en el alcance original y había quedado sin hacer). Puro frontend, sin tocar
+  el backend ni el protocolo: un beep suena cuando pasa algo que ya deja renglón en
+  la franja de actividad (`store/activity.ts`) Y no lo disparé yo -mi propio click no
+  necesita avisarme nada. `hooks/useNotificationSound.ts` (primer uso real de
+  `hooks/`) reusa el mismo filtro de "qué es actividad" que ya tiene la franja en vez
+  de mantener una segunda lista de eventos "que suenan".
+  - `store/types.ts`: `ActivityEntry` suma `participantId: string | null` -antes solo
+    tenía `color`, que no alcanza para un "¿fui yo?" confiable (dos participantes
+    pueden compartir uno de los seis colores del catálogo). Los diez sitios de
+    `roomStore.ts` que arman un renglón de actividad ahora pasan también el id de
+    quien disparó el evento (`event.author_id`, `event.participant_id`, etc. según
+    el evento); `room.background` sigue sin autor -no viaja con `participant_id`- y
+    queda con `participantId: null`, igual que su `color`.
+  - `lib/notificationSound.ts`: el beep es un oscilador de Web Audio sintetizado en
+    el momento (880Hz, envolvente corta), no un archivo de audio -nada que
+    empaquetar ni servir, y "silenciar" es simplemente no llamar a la función-. La
+    preferencia de silencio es GLOBAL en `localStorage`
+    (`corcho:notifications_muted`), no por sala como `lib/identity.ts`: es una
+    preferencia de la persona frente a la pestaña, no de en qué sala está.
+  - El hook compara el LARGO de `state.activity` entre renders, no el id del último
+    renglón: un lote de eventos casi simultáneos puede sumar más de un renglón nuevo
+    de una vez, y mirar solo el último se perdería los demás (un solo beep alcanza
+    igual para todo el lote).
+  - Verificado con dos pestañas de verdad (identidades distintas, no simulado): con
+    un `AudioContext` espiado, crear una nota propia no dispara el beep
+    (`beepCount` se mantiene en 0); conectar una segunda persona sí lo dispara
+    (`beepCount` pasa a 1).
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
@@ -311,25 +372,15 @@ agregar una función o terminar bien una existente, terminar bien la existente.
 
 **Comprometido, pendiente** -ya estaba planeado, sigue en pie-:
 
-1. Contenido sembrado (`scripts/seed.py`): una sala precargada con varias notas
-   repartidas entre las tres columnas, tres o cuatro participantes ficticios, cupos a
-   medio llenar, checklists con progreso, reacciones y algo de actividad reciente.
-   Cuidado con el `now()` congelado por transacción, ya documentado más arriba en
-   `chat.list_messages` -si se inserta todo en una sola transacción, los timestamps
-   salen idénticos y el orden queda al azar.
-2. Sonido de notificación con botón de silencio -estaba en el alcance original y
-   quedó sin hacer. Preferencia personal, no de sala: el mute vive en `localStorage`
-   del cliente, no en el store ni en el backend -a nadie más le importa si silencié
-   mi propio audio.
-3. QR y responsive en celular.
-4. Deploy en Render.
-5. Modo teatro (`scripts/theater.py`) y README con diagrama.
-6. Chat.
+1. QR y responsive en celular.
+2. Deploy en Render.
+3. Modo teatro (`scripts/theater.py`) y README con diagrama.
+4. Chat.
 
 **Nuevo, aprobado** -alcance ampliado esta semana; la regla de más abajo aplica a todo
 este bloque-:
 
-7. **Resumen con IA, difundido a toda la sala.** El único ítem de toda esta lista que
+5. **Resumen con IA, difundido a toda la sala.** El único ítem de toda esta lista que
    necesita un evento de protocolo nuevo -todo lo demás se construye leyendo el store
    que ya existe-. Alguien lo pide, el servidor genera el resumen y lo difunde como
    cualquier otro evento: todos lo ven aparecer a la vez, no solo quien lo pidió.
@@ -356,33 +407,33 @@ este bloque-:
      `handlers.dispatch()` devuelva el evento de una -mismo cuidado que ya costó el
      primer bug de concurrencia del día 2: nunca bloquear el camino síncrono con
      algo lento.
-8. **Exportar el tablero a markdown.** Puro frontend: lee `RoomState` (notas por
+6. **Exportar el tablero a markdown.** Puro frontend: lee `RoomState` (notas por
    columna, autor, quién tomó cada cupo, checklist parseado con `lib/checklist.ts`)
    y arma un string markdown, sin tocar el backend. Se descarga o se copia al
    portapapeles del lado del cliente.
-9. **Buscar.** Filtra notas por texto, checklist incluido -gratis, porque el
+7. **Buscar.** Filtra notas por texto, checklist incluido -gratis, porque el
    checklist ya vive como texto plano dentro de `note.text` (`lib/checklist.ts`): no
    hace falta un parser aparte para que la búsqueda alcance el contenido de los
    ítems. Puro frontend: término de búsqueda en estado local, filtro en
    `store/selectors.ts`.
-10. **Seguir a una persona.** Clic en alguien de la lista de conectados y la vista
-    sigue su cursor. `presence.cursor` ya existe y ya se guarda en
-    `state.presence.cursors` -esto es un consumidor nuevo de un dato que ya viaja,
-    no un evento nuevo.
-11. **Resaltar las notas de alguien.** Clic en un participante, sus notas
-    (`note.author_id` igual al suyo) se destacan y el resto se atenúa. Puro
-    frontend, un id en estado local.
-12. **Atajos de teclado.** `N` nota nueva, `/` buscar, `Esc` cierra lo que esté
-    abierto (buscar, el composer, el detalle de una nota). Primer uso real de
-    `hooks/` (`useKeyboardShortcuts.ts` o similar) -hasta ahora esa carpeta estaba
-    vacía.
-13. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
+8. **Seguir a una persona.** Clic en alguien de la lista de conectados y la vista
+   sigue su cursor. `presence.cursor` ya existe y ya se guarda en
+   `state.presence.cursors` -esto es un consumidor nuevo de un dato que ya viaja,
+   no un evento nuevo.
+9. **Resaltar las notas de alguien.** Clic en un participante, sus notas
+   (`note.author_id` igual al suyo) se destacan y el resto se atenúa. Puro
+   frontend, un id en estado local.
+10. **Atajos de teclado.** `N` nota nueva, `/` buscar, `Esc` cierra lo que esté
+    abierto (buscar, el composer, el detalle de una nota). `hooks/` ya tiene un
+    primer inquilino (`useNotificationSound.ts`, ver "Hecho"); esto sería el
+    segundo.
+11. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
     cambiar la URL) se busca esa nota en el store una vez que llegó `room.snapshot`,
     se resalta y la vista se centra en ella. Extiende el ruteo mínimo por path que
     ya tiene `App.tsx`, sin librería nueva.
 
 **Regla para todo lo nuevo:** cero tablas nuevas, cero eventos de protocolo nuevos
--salvo el resumen con IA (punto 7), que sí necesita uno para difundirse a toda la
+-salvo el resumen con IA (punto 5), que sí necesita uno para difundirse a toda la
 sala-. Todo lo demás de esta lista se construye leyendo el store que ya existe. Si algo
 de lo de arriba empieza a pedir una tabla o un evento que no está ya anotado acá, parar
 y decirlo antes de escribirlo.
@@ -478,8 +529,8 @@ corcho/
 │   │       ├── notes.py     [x]
 │   │       ├── claims.py    [x]   cupos: tomar y soltar
 │   │       └── chat.py      [x]
-│   ├── scripts/                   solo .gitkeep todavía -próximo en la lista-
-│   │   ├── seed.py                sala precargada del demo
+│   ├── scripts/
+│   │   ├── seed.py          [x]   sala precargada del demo
 │   │   └── theater.py             clientes WS falsos (modo teatro)
 │   ├── alembic/             [x]   configurado, migración inicial aplicada
 │   ├── tests/
@@ -490,7 +541,7 @@ corcho/
 │   │   └── integration/           solo .gitkeep
 │   ├── pyproject.toml       [x]
 │   └── Dockerfile                 no existe todavía -hace falta para el deploy
-├── frontend/                [x]   sala completa y funcional; falta seed/QR/responsive
+├── frontend/                [x]   sala completa y funcional; falta QR/responsive
 │   ├── src/
 │   │   ├── main.tsx         [x]
 │   │   ├── App.tsx          [x]   ruteo mínimo por path, sin librería
@@ -515,9 +566,10 @@ corcho/
 │   │   │   ├── activity/     [x]  franja de eventos recientes
 │   │   │   └── chat/               no empezado -último en la lista, a propósito
 │   │   ├── components/            sin uso todavía -cada feature trae su propio CSS
-│   │   ├── hooks/                 sin uso todavía
+│   │   ├── hooks/             [x] useNotificationSound.ts -primer inquilino-
 │   │   └── lib/               [x] constantes, identity, colores, avatares, ids,
-│   │                               checklist en markdown (checklist.ts)
+│   │                               checklist en markdown (checklist.ts), sonido de
+│   │                               notificación (notificationSound.ts)
 │   └── public/
 ├── .github/workflows/ci.yml [x]
 ├── docker-compose.yml       [x]

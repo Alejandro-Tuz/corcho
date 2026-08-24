@@ -66,6 +66,31 @@
   color: var(--danger);
 }
 
+.canvas-mute-btn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-soft);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.canvas-mute-btn:hover {
+  border-color: var(--cork);
+  color: var(--ink);
+}
+
+.canvas-mute-btn[aria-pressed='true'] {
+  background: rgba(179, 73, 47, 0.12);
+  border-color: transparent;
+  color: var(--danger);
+}
+
 /* Sin alto fijo a propósito: el espacio de trabajo tiene que crecer hacia abajo
  * a medida que se acumulan notas (pulido), no quedar recortado a una altura de
  * pantalla con las últimas notas desbordando sin scroll. `min-height` solo

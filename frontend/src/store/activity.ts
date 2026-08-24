@@ -33,8 +33,15 @@ export function appendActivity(
   activity: ActivityEntry[],
   text: string,
   color: ParticipantColor | null,
+  participantId: string | null,
 ): ActivityEntry[] {
-  const entry: ActivityEntry = { id: crypto.randomUUID(), at: new Date().toISOString(), text, color }
+  const entry: ActivityEntry = {
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    text,
+    color,
+    participantId,
+  }
   const next = [...activity, entry]
   return next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next
 }

@@ -294,7 +294,12 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
     setState((s) => ({
       ...s,
       chatMessages: [...s.chatMessages, message],
-      activity: appendActivity(s.activity, `${me.name}: "${previewNoteText(text)}"`, me.color),
+      activity: appendActivity(
+        s.activity,
+        `${me.name}: "${previewNoteText(text)}"`,
+        me.color,
+        me.participantId,
+      ),
     }))
     socket.send({ type: 'chat.message', id, note_id: noteId, text })
   }
@@ -455,7 +460,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
       // (ver decisión de reidentificación en CLAUDE.md) -no hay forma de
       // distinguirlas desde acá, y ninguna de las dos frases sería exacta para
       // la otra mitad de los casos.
-      activity: appendActivity(s.activity, `${event.name} se conectó a la sala`, event.color),
+      activity: appendActivity(s.activity, `${event.name} se conectó a la sala`, event.color, event.id),
     }))
   }
 
@@ -478,7 +483,12 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
           drafting: omit(s.presence.drafting, event.participant_id),
           typing: omit(s.presence.typing, event.participant_id),
         },
-        activity: appendActivity(s.activity, `${current.name} se desconectó`, current.color),
+        activity: appendActivity(
+          s.activity,
+          `${current.name} se desconectó`,
+          current.color,
+          event.participant_id,
+        ),
       }
     })
   }
@@ -494,6 +504,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
           s.activity,
           `${author?.name ?? 'alguien'} creó ${noteKindLabel(event.kind)}: "${previewNoteText(event.text)}"`,
           author?.color ?? null,
+          event.author_id,
         ),
       }
     })
@@ -567,6 +578,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
               s.activity,
               `${author?.name ?? 'alguien'} movió "${previewNoteText(current.text)}" a ${STATUS_LABELS[event.status]}`,
               author?.color ?? null,
+              current.author_id,
             )
           : s.activity,
       }
@@ -605,6 +617,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
                 s.activity,
                 `${author?.name ?? 'alguien'} borró una nota: "${previewNoteText(note.text)}"`,
                 author?.color ?? null,
+                note.author_id,
               ),
       }
     })
@@ -645,6 +658,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
           s.activity,
           `${actor?.name ?? 'alguien'} tomó un cupo en "${previewNoteText(current.text)}"`,
           actor?.color ?? null,
+          event.participant_id,
         ),
       }
     })
@@ -672,6 +686,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
           s.activity,
           `${actor?.name ?? 'alguien'} soltó un cupo en "${previewNoteText(current.text)}"`,
           actor?.color ?? null,
+          event.participant_id,
         ),
       }
     })
@@ -712,6 +727,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
               s.activity,
               `${actor?.name ?? 'alguien'} reaccionó ${event.emoji} a "${previewNoteText(current.text)}"`,
               actor?.color ?? null,
+              event.participant_id,
             )
           : s.activity,
       }
@@ -733,6 +749,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
             s.activity,
             `${author?.name ?? 'alguien'}: "${previewNoteText(event.text)}"`,
             author?.color ?? null,
+            event.author_id,
           ),
         }
       }
@@ -748,7 +765,12 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
       background: event.background,
       // `room.background` no viaja con `participant_id` (protocol.ts): sin autor
       // a quien atribuírselo, renglón sin punto de color.
-      activity: appendActivity(s.activity, `Fondo cambiado a ${BACKGROUND_LABELS[event.background]}`, null),
+      activity: appendActivity(
+        s.activity,
+        `Fondo cambiado a ${BACKGROUND_LABELS[event.background]}`,
+        null,
+        null,
+      ),
     }))
   }
 

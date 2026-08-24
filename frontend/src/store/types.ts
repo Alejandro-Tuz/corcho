@@ -117,7 +117,11 @@ export interface TypingPresence {
  * Se arma en `store/activity.ts` en el momento en que cada `applyX` de
  * `roomStore.ts` lo amerita -no todos los eventos entran, ver ese módulo-. `color`
  * es el `ParticipantColor` de quien disparó el evento, para el punto de color en la
- * franja; `null` en los pocos casos sin un autor claro a quien atribuírselo (p. ej.
+ * franja; `participantId` es su id crudo, para que un consumidor pueda comparar
+ * contra `me.participantId` sin heurísticas (`hooks/useNotificationSound.ts` lo usa
+ * así: "esto no lo hice yo" no se puede inferir de forma confiable del color solo,
+ * dos personas pueden compartir uno de los seis del catálogo). Los dos quedan en
+ * `null` juntos en los pocos casos sin un autor claro a quien atribuírselo (p. ej.
  * `room.background`, que no viaja con `participant_id`).
  */
 export interface ActivityEntry {
@@ -125,6 +129,7 @@ export interface ActivityEntry {
   at: string
   text: string
   color: ParticipantColor | null
+  participantId: string | null
 }
 
 export interface RoomState {
