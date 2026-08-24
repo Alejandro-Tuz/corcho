@@ -4,9 +4,11 @@ Espacio de trabajo colaborativo en tiempo real. Un lienzo con notas tipo post-it
 equipo publica pendientes y updates, y todos ven los cambios al instante sin recargar.
 Se entra por link o QR, sin registro: nombre + avatar y adentro.
 
-Proyecto de 3 días con demo en vivo. **El pulido no es el acabado del proyecto, es el
-proyecto.** Ante la duda entre agregar una función o terminar bien una existente, terminar
-bien la existente.
+Empezó como un proyecto de 3 días con demo en vivo. La fecha real de la entrevista es en
+una semana, no al otro día como se asumió al principio -el día 3 se estiró a un tramo de
+una semana y el alcance creció con él (ver "Siguiente" más abajo). El criterio de fondo no
+cambió: **el pulido no es el acabado del proyecto, es el proyecto.** Ante la duda entre
+agregar una función o terminar bien una existente, terminar bien la existente.
 
 ## Estado del proyecto
 
@@ -305,18 +307,91 @@ bien la existente.
   transacción), pero sí en scripts que inserten varios mensajes sin commitear entre
   medio -`scripts/seed.py` tiene que tenerlo presente-.
 
-**Siguiente, en este orden (día 3, el último):**
+**Siguiente, en este orden (semana hasta la entrevista, alcance ampliado en consecuencia):**
 
-1. Contenido sembrado (`scripts/seed.py`) -cuidado con el `now()` congelado por
-   transacción, ya documentado más abajo en `chat.list_messages`.
-2. QR y responsive en celular.
-3. Deploy en Render.
-4. Modo teatro (`scripts/theater.py`) y README con diagrama.
-5. Chat, solo si sobra tiempo.
+**Comprometido, pendiente** -ya estaba planeado, sigue en pie-:
 
-**Si el tiempo aprieta, lo primero que sale es el chat.** Es la pieza más cara de lo que
-queda (persistencia, scroll, no leídos, filtro por tarea, typing) y la que menos aporta al
-momento central del demo: una nota moviéndose en dos pantallas a la vez.
+1. Contenido sembrado (`scripts/seed.py`): una sala precargada con varias notas
+   repartidas entre las tres columnas, tres o cuatro participantes ficticios, cupos a
+   medio llenar, checklists con progreso, reacciones y algo de actividad reciente.
+   Cuidado con el `now()` congelado por transacción, ya documentado más arriba en
+   `chat.list_messages` -si se inserta todo en una sola transacción, los timestamps
+   salen idénticos y el orden queda al azar.
+2. Sonido de notificación con botón de silencio -estaba en el alcance original y
+   quedó sin hacer. Preferencia personal, no de sala: el mute vive en `localStorage`
+   del cliente, no en el store ni en el backend -a nadie más le importa si silencié
+   mi propio audio.
+3. QR y responsive en celular.
+4. Deploy en Render.
+5. Modo teatro (`scripts/theater.py`) y README con diagrama.
+6. Chat.
+
+**Nuevo, aprobado** -alcance ampliado esta semana; la regla de más abajo aplica a todo
+este bloque-:
+
+7. **Resumen con IA, difundido a toda la sala.** El único ítem de toda esta lista que
+   necesita un evento de protocolo nuevo -todo lo demás se construye leyendo el store
+   que ya existe-. Alguien lo pide, el servidor genera el resumen y lo difunde como
+   cualquier otro evento: todos lo ven aparecer a la vez, no solo quien lo pidió.
+   Pieza de diseño, no solo de código -mostrar el diseño y esperar revisión antes de
+   escribir nada, ya es la convención del proyecto ("Flujo de trabajo con Claude")-,
+   pero el bosquejo:
+   - La clave de la API vive solo en el backend (`core/config.py`), nunca en el
+     cliente.
+   - Límite de uso -un resumen por sala cada N minutos-, porque es una sala sin
+     autenticación a la que se entra por link: sin este límite, cualquiera con el
+     link puede vaciar la cuota de la API a fuerza de pedidos. Sin tabla nueva: el
+     candidato natural es una clave en Redis con TTL (`core/redis.py` ya está
+     cableado, y esto es justo el tipo de estado efímero para el que sirve -no es un
+     contador de negocio como `taken_count`, el invariante 1 no aplica acá).
+   - Estado "generando" visible: la llamada a la IA tarda segundos, y todo lo demás
+     en la app es instantáneo -sin esto, la sala se siente rota mientras se espera.
+     Probablemente dos eventos, no uno: algo como `room.summary_requested`
+     (difundido de inmediato, para que toda la sala vea "generando...") y
+     `room.summary` (difundido cuando la IA responde, con el texto o un error).
+     Nombres y forma exacta, a confirmar en el diseño.
+   - La llamada a la IA no puede bloquear el loop de mensajes del socket
+     (`realtime/endpoint.py`/`handlers.py` son síncronos hoy): necesita correr
+     aparte y publicar su resultado cuando termine, en vez de que
+     `handlers.dispatch()` devuelva el evento de una -mismo cuidado que ya costó el
+     primer bug de concurrencia del día 2: nunca bloquear el camino síncrono con
+     algo lento.
+8. **Exportar el tablero a markdown.** Puro frontend: lee `RoomState` (notas por
+   columna, autor, quién tomó cada cupo, checklist parseado con `lib/checklist.ts`)
+   y arma un string markdown, sin tocar el backend. Se descarga o se copia al
+   portapapeles del lado del cliente.
+9. **Buscar.** Filtra notas por texto, checklist incluido -gratis, porque el
+   checklist ya vive como texto plano dentro de `note.text` (`lib/checklist.ts`): no
+   hace falta un parser aparte para que la búsqueda alcance el contenido de los
+   ítems. Puro frontend: término de búsqueda en estado local, filtro en
+   `store/selectors.ts`.
+10. **Seguir a una persona.** Clic en alguien de la lista de conectados y la vista
+    sigue su cursor. `presence.cursor` ya existe y ya se guarda en
+    `state.presence.cursors` -esto es un consumidor nuevo de un dato que ya viaja,
+    no un evento nuevo.
+11. **Resaltar las notas de alguien.** Clic en un participante, sus notas
+    (`note.author_id` igual al suyo) se destacan y el resto se atenúa. Puro
+    frontend, un id en estado local.
+12. **Atajos de teclado.** `N` nota nueva, `/` buscar, `Esc` cierra lo que esté
+    abierto (buscar, el composer, el detalle de una nota). Primer uso real de
+    `hooks/` (`useKeyboardShortcuts.ts` o similar) -hasta ahora esa carpeta estaba
+    vacía.
+13. **Enlace directo a una nota.** La URL lleva el id de la nota; al cargar (o al
+    cambiar la URL) se busca esa nota en el store una vez que llegó `room.snapshot`,
+    se resalta y la vista se centra en ella. Extiende el ruteo mínimo por path que
+    ya tiene `App.tsx`, sin librería nueva.
+
+**Regla para todo lo nuevo:** cero tablas nuevas, cero eventos de protocolo nuevos
+-salvo el resumen con IA (punto 7), que sí necesita uno para difundirse a toda la
+sala-. Todo lo demás de esta lista se construye leyendo el store que ya existe. Si algo
+de lo de arriba empieza a pedir una tabla o un evento que no está ya anotado acá, parar
+y decirlo antes de escribirlo.
+
+**Si el tiempo aprieta, el chat sigue siendo lo primero que sale** de la lista
+comprometida -es la pieza más cara de lo que queda ahí (persistencia, scroll, no
+leídos, filtro por tarea, typing) y la que menos aporta al momento central del demo:
+una nota moviéndose en dos pantallas a la vez. Dentro de lo nuevo no hay un orden de
+corte decidido todavía -si aprieta ahí, es una conversación aparte.
 
 ## Stack
 
@@ -672,4 +747,5 @@ Decidido y cerrado. No proponer, no implementar:
 
 canales de chat privados por tarea, menciones, toque de atención, historial completo de
 actividad, edición de texto simultánea (necesitaría CRDTs), subida de fotos de perfil,
-login con contraseña, audio o video, selector de color libre para el fondo.
+login con contraseña, cuentas o permisos, audio o video, selector de color libre para el
+fondo, etiquetas, fechas de vencimiento, adjuntos.
