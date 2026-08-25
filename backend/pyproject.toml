@@ -12,6 +12,7 @@ dependencies = [
     "redis>=5",
     "websockets",
     "python-dotenv>=1",
+    "anthropic",
 ]
 
 [project.optional-dependencies]

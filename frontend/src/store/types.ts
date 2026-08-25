@@ -43,6 +43,9 @@ import type {
   ReactionToggleOut,
   RoomBackgroundOut,
   RoomSnapshot,
+  RoomSummary,
+  RoomSummaryRejected,
+  RoomSummaryRequested,
 } from '../realtime/protocol'
 import type { ConnectionStatus } from '../realtime/socket'
 
@@ -158,6 +161,18 @@ export interface RoomState {
    * limpia sola con un timeout -ver el docstring de ese componente. */
   fallingNotes: Record<string, NoteState>
 
+  /** Último resumen con IA guardado -viene de `room.snapshot` o de un `room.summary`
+   * exitoso, sobrevive a cerrar el panel que lo muestra (`RoomSummaryButton.tsx`).
+   * "¿ya lo vi?" NO vive acá: es una preferencia de este visor, no de la sala -mismo
+   * criterio que `CanvasFocusContext.ts`-, así que ese componente la trackea local. */
+  summary: { text: string; generatedAt: string } | null
+  /** No-null mientras hay una generación en curso en la sala -de cualquiera, no solo
+   * mía-, para que el botón muestre "Generando..." en todas las pantallas. */
+  summaryGenerating: { requestedBy: string } | null
+  /** Mensaje transitorio de "no se pudo" (rechazo al pedirlo, o falla de la IA ya en
+   * curso). Se limpia sola con un timeout -mismo patrón que `fallingNotes`. */
+  summaryNotice: { text: string } | null
+
   presence: {
     cursors: Record<string, CursorPresence>
     dragging: Record<string, DraggingPresence>
@@ -179,6 +194,9 @@ export function createInitialState(): RoomState {
     chatMessages: [],
     activity: [],
     fallingNotes: {},
+    summary: null,
+    summaryGenerating: null,
+    summaryNotice: null,
     presence: { cursors: {}, dragging: {}, drafting: {}, typing: {} },
   }
 }
@@ -209,6 +227,10 @@ export interface RoomCommands {
   sendDragging(noteId: string, positionX: number, positionY: number): void
   sendDrafting(kind: NoteKind, positionX: number, positionY: number, active: boolean): void
   sendTyping(noteId: string | null, active: boolean): void
+  /** Sin mutación optimista -mismo criterio que claimNote/releaseNote: el servidor
+   * confirma o rechaza, no hay nada que pintar de entrada (`RoomSummaryButton.tsx`
+   * ya muestra "generando" recién cuando llega `room.summary_requested`). */
+  requestSummary(): void
 }
 
 export interface RoomApplyActions {
@@ -231,4 +253,7 @@ export interface RoomApplyActions {
   applyPresenceDragging(event: PresenceDraggingOut): void
   applyPresenceDrafting(event: PresenceDraftingOut): void
   applyChatTyping(event: ChatTypingOut): void
+  applyRoomSummaryRequested(event: RoomSummaryRequested): void
+  applyRoomSummary(event: RoomSummary): void
+  applyRoomSummaryRejected(event: RoomSummaryRejected): void
 }

@@ -1,10 +1,22 @@
 """Punto de entrada de FastAPI. El `lifespan` cablea lo que vive más que un solo
 request: el cliente de Redis, el `ConnectionManager` (sockets locales de este worker,
-en memoria) y el `RedisBroker` (puente pub/sub) -ver `realtime/manager.py` y
-`realtime/broker.py`. Los dos cuelgan de `app.state` porque tanto `api/v1/` como
-`realtime/endpoint.py` los necesitan, y un framework de DI más pesado no se justifica
-para un proyecto de 3 días."""
+en memoria), el `RedisBroker` (puente pub/sub) -ver `realtime/manager.py` y
+`realtime/broker.py`- y `background_tasks`. Todos cuelgan de `app.state` porque tanto
+`api/v1/` como `realtime/endpoint.py`/`handlers.py` los necesitan, y un framework de DI
+más pesado no se justifica para un proyecto de 3 días.
 
+`app.state.redis` es el mismo cliente que ya recibe `RedisBroker`, no una conexión
+nueva -expuesto aparte porque `services/summary.py` también lo necesita (límite de uso,
+persistencia del último resumen) y no pasa por el broker para eso.
+
+`app.state.background_tasks` guarda las tareas que `handlers.py` lanza con
+`asyncio.create_task()` para el resumen con IA (`RoomSummaryRequestIn`) y no espera:
+sin una referencia fuerte, `asyncio` puede recolectarlas a mitad de camino (gotcha
+documentado de la librería). El `finally` de acá abajo también las cancela antes de
+cerrar Redis -si no, una tarea despertando de un `await` a Redis ya cerrado revienta en
+silencio."""
+
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -28,10 +40,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     app.state.manager = manager
     app.state.broker = broker
+    app.state.redis = redis
+    app.state.background_tasks = set()
 
     try:
         yield
     finally:
+        for task in list(app.state.background_tasks):
+            task.cancel()
+        if app.state.background_tasks:
+            await asyncio.gather(*app.state.background_tasks, return_exceptions=True)
         await broker.stop()
         await redis.aclose()
 

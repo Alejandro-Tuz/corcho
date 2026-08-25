@@ -104,6 +104,17 @@ class ReactionEntry(Event):
     participant_id: uuid.UUID
 
 
+class SummaryState(Event):
+    """Último resumen con IA generado con éxito para la sala, o nada -campo opcional
+    de `RoomSnapshot`, no un evento propio (sin `type`, mismo trato que
+    `ReactionEntry`). A propósito sin `error`: acá solo llega lo que
+    `services/summary.py` ya persistió en Redis, y solo persiste cuando salió bien
+    (ver ese módulo). Un intento fallido nunca pisa lo último que sí funcionó."""
+
+    text: str
+    generated_at: datetime
+
+
 class NoteState(Event):
     id: uuid.UUID
     author_id: uuid.UUID
@@ -174,6 +185,11 @@ class RoomSnapshot(Event):
     notes: list[NoteState]
     participants: list[ParticipantState]
     chat_messages: list[ChatMessageState]
+    # Último resumen con IA guardado en Redis (persistencia B, ver el diseño del
+    # resumen con IA), o None si nunca se pidió uno en esta sala. `services/rooms.py`
+    # -sin acceso a Redis, solo Postgres- siempre lo deja en None; `endpoint.py` es
+    # quien lo completa después, ya en contexto async (ver `_join`).
+    summary: SummaryState | None
 
 
 # --- presencia (por conexión, no por mensaje del cliente) ---------------------------
@@ -352,6 +368,58 @@ class RoomBackgroundOut(Event):
     background: Background
 
 
+# --- resumen con IA (CLAUDE.md, "Nuevo, aprobado" #5) --------------------------------
+#
+# Único ítem de "Nuevo, aprobado" que necesita protocolo nuevo -todo lo demás se
+# construye leyendo el store que ya existe. Tres eventos de servidor, no uno, porque
+# la llamada a la IA tarda segundos y no puede bloquear el loop síncrono del socket
+# (ver `services/summary.py` y `realtime/handlers.py`): `room.summary_requested` se
+# difunde de inmediato (para que toda la sala vea "generando..."), `room.summary`
+# recién cuando la tarea de fondo termina (éxito o falla), y `room.summary_rejected`
+# solo al socket que lo pidió cuando ni siquiera arranca (límite de uso, ya hay una
+# generación en curso, o no hay clave de IA configurada) -mismo trato que
+# `NoteClaimRejected`: un resultado esperable de uso normal, no un `error` genérico.
+
+
+class RoomSummaryRequestIn(Event):
+    type: Literal["room.summary_request"] = "room.summary_request"
+    # Sin campos: sala y participante ya los da la conexión (mismo criterio que Ping).
+
+
+class RoomSummaryRequested(Event):
+    """Difundido a toda la sala apenas se acepta el pedido -no cuando termina-, para
+    que todos vean "generando..." aunque no hayan sido quien lo pidió."""
+
+    type: Literal["room.summary_requested"] = "room.summary_requested"
+    requested_by: uuid.UUID
+
+
+class RoomSummary(Event):
+    """Difundido a toda la sala cuando la tarea de fondo termina, éxito o falla.
+    Exactamente uno de `text`/`error` va seteado -mismo espíritu que el CHECK
+    `kind_capacity` de notas: inválido a propósito tener los dos o ninguno."""
+
+    type: Literal["room.summary"] = "room.summary"
+    text: str | None
+    error: Literal["failed"] | None
+    generated_at: datetime
+
+    @model_validator(mode="after")
+    def _check_exactly_one(self) -> "RoomSummary":
+        if (self.text is None) == (self.error is None):
+            raise ValueError("RoomSummary necesita exactamente uno de text/error")
+        return self
+
+
+class RoomSummaryRejected(Event):
+    """Enviado solo al socket que lo pidió -mismo criterio que NoteClaimRejected."""
+
+    type: Literal["room.summary_rejected"] = "room.summary_rejected"
+    reason: Literal["rate_limited", "already_generating", "unavailable"]
+    # Solo tiene sentido con reason="rate_limited"; None en los otros dos casos.
+    retry_after_seconds: int | None = None
+
+
 # --- error genérico (enviado solo al socket que lo disparó) -------------------------
 
 
@@ -455,6 +523,7 @@ _ClientEvent = (
     | ReactionToggleIn
     | ChatMessageIn
     | RoomBackgroundIn
+    | RoomSummaryRequestIn
     | Ping
     | PresenceCursorIn
     | PresenceDraggingIn
@@ -478,6 +547,9 @@ _ServerEvent = (
     | ReactionToggleOut
     | ChatMessageOut
     | RoomBackgroundOut
+    | RoomSummaryRequested
+    | RoomSummary
+    | RoomSummaryRejected
     | ErrorEvent
     | Pong
     | PresenceCursorOut

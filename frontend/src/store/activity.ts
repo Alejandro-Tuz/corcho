@@ -8,7 +8,10 @@
  * Eventos que SÍ dejan renglón: alguien se conecta/desconecta, crea/borra/mueve
  * (solo si cambia de columna) una nota, toma/suelta un cupo, reacciona (solo al
  * activar, no al desactivar -el toggle de "sacar" una reacción no aporta nada que
- * mirar), cambia el fondo, o manda un mensaje de chat.
+ * mirar), cambia el fondo, manda un mensaje de chat, o pide un resumen de la sala
+ * (`room.summary_requested`) -el resultado (`room.summary`) NO deja un segundo
+ * renglón: ya tiene su propia superficie dedicada (`RoomSummaryButton.tsx`), un
+ * duplicado acá sería ruido.
  *
  * Eventos que a propósito NO dejan renglón: `note.update` (texto/color editado
  * -pasa seguido mientras alguien piensa en voz alta, sería la mitad de la franja

@@ -8,6 +8,13 @@ de otra pasada-.
 un fallback las convertiría en "conectado a lo equivocado" en vez de "falla en el
 arranque" (convención en CLAUDE.md). Si falta cualquiera de las dos en el entorno o en
 `.env`, `Settings()` revienta con un `ValidationError` al importar el módulo.
+
+`ai_api_key` es la única excepción a propósito a esa regla: sin ella, el resumen con IA
+(`services/summary.py`) no es infraestructura de la que dependa el resto de la app -sin
+la clave, notas, cupos y chat siguen funcionando igual, solo esa función puntual queda
+apagada (`summary.start()` devuelve `UNAVAILABLE` antes de tocar Redis). Obligarla sin
+default dejaría sin arrancar a cualquiera que levante el proyecto sin configurar IA, que
+es la situación por default hasta que se configure para el deploy.
 """
 
 from pathlib import Path
@@ -22,6 +29,7 @@ class Settings(BaseSettings):
 
     database_url: str
     redis_url: str
+    ai_api_key: str | None = None
 
 
 settings = Settings()

@@ -156,7 +156,12 @@ def get_snapshot(
     Postgres (`event.listen` sobre `before_cursor_execute`): 14 consultas para 5
     notas con `session.get()`, 6 consultas para las mismas 5 notas con `select()`, y
     ese número no crece con más notas-. `select(Room).where(...)` sí respeta la
-    cadena completa."""
+    cadena completa.
+
+    `summary` siempre sale en `None` acá: este service solo tiene Postgres, y el
+    último resumen con IA vive en Redis (`services/summary.py`). `endpoint.py` -que
+    sí tiene los dos, ya en contexto async- es quien lo completa después de llamar
+    a esta función, ver `_join`."""
     room = session.execute(
         select(Room)
         .where(Room.slug == room_slug)
@@ -177,4 +182,5 @@ def get_snapshot(
         notes=[to_note_state(note) for note in room.notes],
         participants=[_to_participant_state(p) for p in room.participants],
         chat_messages=chat.list_messages(session, room_slug),
+        summary=None,
     )

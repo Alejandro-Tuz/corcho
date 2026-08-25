@@ -23,8 +23,18 @@ ya no importa `RedisBroker` en absoluto -no lo necesita para nada más.
 Sin lógica de negocio acá: cada rama es servicio -> if/else sobre el outcome -> evento.
 La única lógica propia de este módulo es esa traducción, y el aviso de mejor esfuerzo de
 `dispatch()` cuando algo revienta a mitad de camino (ver su docstring).
-"""
 
+## Excepción puntual: `room.summary_request`
+
+Es la única rama que lee `websocket.app.state.broker`/`.redis` en vez de limitarse a
+`manager`. No rompe la regla de arriba (nunca publicar antes del commit): acá no hay
+NINGÚN commit que esperar -este mensaje no escribe nada en Postgres-, y lo único que
+esta rama hace con `broker`/`redis` es lanzar `summary.generate_and_publish()` con
+`asyncio.create_task(...)` y seguir de largo sin esperarla. Quien de verdad llama
+`broker.publish()` es esa tarea, mucho después y desde su propio contexto -ver el
+docstring de `services/summary.py` para el porqué completo."""
+
+import asyncio
 import contextlib
 import uuid
 
@@ -66,9 +76,12 @@ from app.realtime.protocol import (
     RoomBackgroundIn,
     RoomBackgroundOut,
     RoomJoinIn,
+    RoomSummaryRejected,
+    RoomSummaryRequested,
+    RoomSummaryRequestIn,
     ServerEvent,
 )
-from app.services import chat, claims, notes, rooms
+from app.services import chat, claims, notes, rooms, summary
 from app.services.claims import ClaimOutcome, ReleaseOutcome
 from app.services.notes import NoteOutcome, ReactionOutcome
 from app.services.rooms import BackgroundOutcome
@@ -335,6 +348,42 @@ async def _dispatch(
                 )
                 return None
             return RoomBackgroundOut(background=event.background)
+
+        case RoomSummaryRequestIn():
+            app_state = websocket.app.state
+            result = await summary.start(app_state.redis, room)
+            match result.outcome:
+                case summary.StartOutcome.UNAVAILABLE:
+                    await manager.send_to_socket(
+                        websocket,
+                        RoomSummaryRejected(reason="unavailable", retry_after_seconds=None),
+                    )
+                    return None
+                case summary.StartOutcome.ALREADY_GENERATING:
+                    await manager.send_to_socket(
+                        websocket,
+                        RoomSummaryRejected(reason="already_generating", retry_after_seconds=None),
+                    )
+                    return None
+                case summary.StartOutcome.RATE_LIMITED:
+                    await manager.send_to_socket(
+                        websocket,
+                        RoomSummaryRejected(
+                            reason="rate_limited", retry_after_seconds=result.retry_after_seconds
+                        ),
+                    )
+                    return None
+                case summary.StartOutcome.STARTED:
+                    # Desatada a propósito -ver el docstring del módulo y el de
+                    # services/summary.py-: esta tarea corre suelta, publica ella
+                    # misma cuando termina, mucho después de que este mensaje ya
+                    # comiteó y siguió su curso.
+                    task = asyncio.create_task(
+                        summary.generate_and_publish(room, app_state.broker, app_state.redis)
+                    )
+                    app_state.background_tasks.add(task)
+                    task.add_done_callback(app_state.background_tasks.discard)
+                    return RoomSummaryRequested(requested_by=participant_id)
 
         case Ping():
             await manager.send_to_socket(websocket, Pong())

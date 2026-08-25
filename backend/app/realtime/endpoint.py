@@ -20,6 +20,7 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter
+from redis.asyncio import Redis
 from starlette.websockets import WebSocketState
 
 from app.db.session import SessionLocal
@@ -34,8 +35,9 @@ from app.realtime.protocol import (
     PresenceLeft,
     RoomJoinIn,
     RoomSnapshot,
+    SummaryState,
 )
-from app.services import rooms
+from app.services import rooms, summary
 from app.services.rooms import JoinOutcome
 
 logger = logging.getLogger(__name__)
@@ -60,10 +62,11 @@ def _parse_event(raw: str) -> ClientEvent | None:
 async def websocket_endpoint(websocket: WebSocket, room: str) -> None:
     manager: ConnectionManager = websocket.app.state.manager
     broker: RedisBroker = websocket.app.state.broker
+    redis = websocket.app.state.redis
 
     await websocket.accept()
 
-    join_result = await _join(websocket, room)
+    join_result = await _join(websocket, room, redis)
     if join_result is None:
         return  # ya resuelto adentro de _join: cierre limpio, o el cliente se fue
     participant, snapshot = join_result
@@ -81,7 +84,9 @@ async def websocket_endpoint(websocket: WebSocket, room: str) -> None:
         await _leave(websocket, room, participant.id, manager, broker)
 
 
-async def _join(websocket: WebSocket, room: str) -> tuple[ParticipantState, RoomSnapshot] | None:
+async def _join(
+    websocket: WebSocket, room: str, redis: Redis
+) -> tuple[ParticipantState, RoomSnapshot] | None:
     """Primer mensaje del socket: tiene que ser `room.join`. Devuelve `None` -tras
     mandar el error correspondiente y cerrar el socket, o sin mandar nada si el
     cliente ya se fue- en dos casos bien distintos:
@@ -139,6 +144,19 @@ async def _join(websocket: WebSocket, room: str) -> tuple[ParticipantState, Room
             session.commit()
 
         assert snapshot is not None  # la sala existe: se acaba de confirmar arriba
+
+        # `rooms.get_snapshot` siempre deja `summary` en None -no tiene Redis-. Se
+        # completa acá, ya con la sesión de Postgres cerrada: el último resumen con
+        # IA vive en Redis (`services/summary.py`), no en la base.
+        last_summary = await summary.get_last(redis, room)
+        if last_summary is not None:
+            snapshot = snapshot.model_copy(
+                update={
+                    "summary": SummaryState(
+                        text=last_summary.text, generated_at=last_summary.generated_at
+                    )
+                }
+            )
         return result.participant, snapshot
 
 

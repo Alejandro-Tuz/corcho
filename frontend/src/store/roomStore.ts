@@ -72,6 +72,9 @@ import type {
   ReactionToggleOut,
   RoomBackgroundOut,
   RoomSnapshot,
+  RoomSummary,
+  RoomSummaryRejected,
+  RoomSummaryRequested,
 } from '../realtime/protocol'
 import { connectToRoom } from '../realtime/socket'
 import { dispatch } from '../realtime/dispatch'
@@ -90,6 +93,11 @@ import {
 /** Un poco por encima de la duración de la animación CSS `note-fall`
  * (Note.css) -ver el comentario en `applyNoteDelete`. */
 const FALLING_NOTE_DURATION_MS = 650
+
+/** Cuánto queda visible un rechazo/falla del resumen con IA antes de limpiarse solo
+ * -mismo patrón que `fallingNotes`: el store se encarga del timeout, no el
+ * componente que lo muestra (`RoomSummaryButton.tsx`). */
+const SUMMARY_NOTICE_DURATION_MS = 5000
 
 export interface RoomStore {
   getState(): RoomState
@@ -336,6 +344,14 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
     socket.sendEphemeral({ type: 'chat.typing', note_id: noteId, active })
   }
 
+  function requestSummary(): void {
+    // Sin mutación optimista, a propósito -mismo criterio que claimNote/releaseNote:
+    // el servidor puede rechazar (límite de uso, ya hay uno en curso), y no hay nada
+    // sensato que pintar de entrada. `applyRoomSummaryRequested` es quien recién
+    // marca "generando" cuando el servidor confirma que arrancó.
+    socket.send({ type: 'room.summary_request' })
+  }
+
   // --- aplicar: ServerEvent -> store, llamado solo por dispatch() -------------------
 
   /**
@@ -438,6 +454,15 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
         activity: [],
         // Ídem: nadie sigue viendo caer una nota que se borró antes del corte.
         fallingNotes: {},
+        // El último resumen guardado sí sobrevive a una reconexión -viene de Redis,
+        // no de este socket-; "generando"/el aviso transitorio no, son de esta
+        // conexión puntual.
+        summary:
+          event.summary === null
+            ? null
+            : { text: event.summary.text, generatedAt: event.summary.generated_at },
+        summaryGenerating: null,
+        summaryNotice: null,
         // Efímero, no sobrevive a una reconexión -nadie sigue arrastrando ni con el
         // cursor en el mismo lugar del otro lado tras un corte.
         presence: { cursors: {}, dragging: {}, drafting: {}, typing: {} },
@@ -780,6 +805,49 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
     if (event.note_id !== null) rollbackPendingOp(event.note_id)
   }
 
+  /** Mensaje transitorio de "no se pudo" -mismo patrón de autolimpieza que
+   * `fallingNotes` (`applyNoteDelete`): el propio store arma el timeout, no el
+   * componente que lo muestra. Compara el texto antes de limpiar por si ya llegó
+   * un aviso más nuevo mientras este esperaba su turno. */
+  function showSummaryNotice(text: string): void {
+    setState((s) => ({ ...s, summaryNotice: { text } }))
+    setTimeout(() => {
+      setState((s) => (s.summaryNotice?.text === text ? { ...s, summaryNotice: null } : s))
+    }, SUMMARY_NOTICE_DURATION_MS)
+  }
+
+  function applyRoomSummaryRequested(event: RoomSummaryRequested): void {
+    setState((s) => {
+      const requester = s.participants[event.requested_by]
+      return {
+        ...s,
+        summaryGenerating: { requestedBy: event.requested_by },
+        summaryNotice: null,
+        activity: appendActivity(
+          s.activity,
+          `${requester?.name ?? 'alguien'} pidió un resumen de la sala`,
+          requester?.color ?? null,
+          event.requested_by,
+        ),
+      }
+    })
+  }
+
+  function applyRoomSummary(event: RoomSummary): void {
+    setState((s) => ({
+      ...s,
+      summaryGenerating: null,
+      // Un intento fallido nunca pisa el último resumen que sí funcionó -se deja
+      // `s.summary` tal cual estaba.
+      summary: event.text !== null ? { text: event.text, generatedAt: event.generated_at } : s.summary,
+    }))
+    if (event.error !== null) showSummaryNotice('No se pudo generar el resumen, probá de nuevo.')
+  }
+
+  function applyRoomSummaryRejected(event: RoomSummaryRejected): void {
+    showSummaryNotice(summaryRejectionText(event))
+  }
+
   function applyPresenceCursor(event: PresenceCursorOut): void {
     setState((s) => ({
       ...s,
@@ -855,6 +923,9 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
     applyPresenceDragging,
     applyPresenceDrafting,
     applyChatTyping,
+    applyRoomSummaryRequested,
+    applyRoomSummary,
+    applyRoomSummaryRejected,
   }
 
   const unsubscribeEvents = socket.onEvent((event) => {
@@ -878,6 +949,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
     sendDragging,
     sendDrafting,
     sendTyping,
+    requestSummary,
   }
 
   return {
@@ -892,6 +964,20 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
       unsubscribeStatus()
       socket.close()
     },
+  }
+}
+
+function summaryRejectionText(event: RoomSummaryRejected): string {
+  switch (event.reason) {
+    case 'already_generating':
+      return 'Ya se está generando un resumen, esperá un toque.'
+    case 'unavailable':
+      return 'El resumen con IA no está disponible en este servidor.'
+    case 'rate_limited': {
+      const seconds = event.retry_after_seconds ?? 0
+      const wait = seconds >= 60 ? `${Math.ceil(seconds / 60)} min` : `${seconds}s`
+      return `Ya se pidió un resumen hace poco -esperá ${wait}.`
+    }
   }
 }
 

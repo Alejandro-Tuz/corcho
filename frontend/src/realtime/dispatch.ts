@@ -77,6 +77,15 @@ export function dispatch(event: ServerEvent, actions: RoomApplyActions): void {
     case 'chat.typing':
       actions.applyChatTyping(event)
       return
+    case 'room.summary_requested':
+      actions.applyRoomSummaryRequested(event)
+      return
+    case 'room.summary':
+      actions.applyRoomSummary(event)
+      return
+    case 'room.summary_rejected':
+      actions.applyRoomSummaryRejected(event)
+      return
     case 'pong':
       return // ver docstring del módulo: no debería llegar acá, pero no rompe nada
     default: {

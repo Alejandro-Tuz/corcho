@@ -80,6 +80,15 @@ export interface ReactionEntry {
   participant_id: string
 }
 
+/** Último resumen con IA generado con éxito para la sala, o nada -campo opcional de
+ * RoomSnapshot, no un evento propio (sin `type`, mismo trato que ReactionEntry). Ver
+ * protocol.py para por qué nunca lleva un error acá: solo llega lo que ya se
+ * persistió, y solo se persiste lo que salió bien. */
+export interface SummaryState {
+  text: string
+  generated_at: string
+}
+
 export interface NoteState {
   id: string
   author_id: string
@@ -148,6 +157,9 @@ export interface RoomSnapshot {
   notes: NoteState[]
   participants: ParticipantState[]
   chat_messages: ChatMessageState[]
+  /** Último resumen con IA guardado (persistencia en Redis, ver protocol.py), o
+   * null si nunca se pidió uno en esta sala. */
+  summary: SummaryState | null
 }
 
 // --- presencia (por conexión, no por mensaje del cliente) ----------------------------
@@ -308,6 +320,38 @@ export interface RoomBackgroundOut {
   background: Background
 }
 
+// --- resumen con IA (CLAUDE.md, "Nuevo, aprobado" #5) ---------------------------------
+// Ver protocol.py para el porqué de los tres eventos de servidor (la llamada a la IA
+// tarda segundos, no puede bloquear el loop del socket).
+
+export interface RoomSummaryRequestIn {
+  type: 'room.summary_request'
+}
+
+/** Difundido a toda la sala apenas se acepta el pedido -no cuando termina-, para
+ * que todos vean "generando..." aunque no hayan sido quien lo pidió. */
+export interface RoomSummaryRequested {
+  type: 'room.summary_requested'
+  requested_by: string
+}
+
+/** Difundido a toda la sala cuando la tarea de fondo termina, éxito o falla.
+ * Exactamente uno de text/error viene seteado. */
+export interface RoomSummary {
+  type: 'room.summary'
+  text: string | null
+  error: 'failed' | null
+  generated_at: string
+}
+
+/** Enviado solo al socket que lo pidió -mismo criterio que NoteClaimRejected. */
+export interface RoomSummaryRejected {
+  type: 'room.summary_rejected'
+  reason: 'rate_limited' | 'already_generating' | 'unavailable'
+  /** Solo tiene sentido con reason === 'rate_limited'; null en los otros dos casos. */
+  retry_after_seconds: number | null
+}
+
 // --- error genérico (enviado solo al socket que lo disparó) --------------------------
 
 export interface ErrorEvent {
@@ -402,6 +446,7 @@ export type ClientEvent =
   | ReactionToggleIn
   | ChatMessageIn
   | RoomBackgroundIn
+  | RoomSummaryRequestIn
   | Ping
   | PresenceCursorIn
   | PresenceDraggingIn
@@ -423,6 +468,9 @@ export type ServerEvent =
   | ReactionToggleOut
   | ChatMessageOut
   | RoomBackgroundOut
+  | RoomSummaryRequested
+  | RoomSummary
+  | RoomSummaryRejected
   | ErrorEvent
   | Pong
   | PresenceCursorOut

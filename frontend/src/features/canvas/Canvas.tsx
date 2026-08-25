@@ -41,6 +41,11 @@
  * `noteId` (enlace directo a una nota, `App.tsx` -> `RoomPage.tsx`) va directo a
  * `hooks/useLinkedNote.ts`, que decide si existe, resalta y centra la vista -acá
  * solo se pinta el aviso de "no existe" cuando el hook lo pide.
+ *
+ * `RoomSummaryButton` (resumen con IA, "Nuevo, aprobado" #5): un botón más de la
+ * toolbar, sin estado propio acá -todo lo que necesita ya vive en el store
+ * (`summary`/`summaryGenerating`/`summaryNotice`) o es local a ese componente
+ * (ver su propio docstring).
  */
 
 import { useMemo, useRef, useState } from 'react'
@@ -59,6 +64,7 @@ import { Activity } from '../activity/Activity'
 import { NoteComposer } from '../notes/NoteComposer'
 import { ParticipantList } from '../presence/ParticipantList'
 import { RemoteCursors } from '../presence/RemoteCursors'
+import { RoomSummaryButton } from '../summary/RoomSummaryButton'
 import { BACKGROUND_COLORS } from './backgroundColor'
 import { CanvasFocusContext } from './CanvasFocusContext'
 import { Column } from './Column'
@@ -181,6 +187,8 @@ export function Canvas({ noteId }: { noteId: string | null }) {
           >
             exportar
           </button>
+
+          <RoomSummaryButton />
 
           <div className="canvas-bg-picker">
             <span className="canvas-bg-label">fondo</span>
