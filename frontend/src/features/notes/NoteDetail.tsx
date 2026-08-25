@@ -62,22 +62,27 @@
  * que edita, `isMine`- y se autocorrige con la próxima actualización real que llegue,
  * igual que `note.move`.
  *
- * ## "Copiar enlace"
+ * ## "Copiar enlace" y "Ver chat de esta nota"
  *
- * Acá, no en la tarjeta -que ya tiene cuatro elementos interactivos, sumar un
- * quinto se siente apretado; el detalle es "el lugar para hacer más cosas con
- * esta nota puntual"-, y visible para cualquiera, no solo `isMine`: compartir el
- * link de una nota compartida es exactamente el caso de uso, no una acción de
- * autoría. Arma `{origin}/{slug}/{note.id}` y lo copia con
+ * Acá, no en la tarjeta -que ya tiene cuatro elementos interactivos, sumar más se
+ * siente apretado; el detalle es "el lugar para hacer más cosas con esta nota
+ * puntual"-, y las dos visibles para cualquiera, no solo `isMine`: compartir el
+ * link de una nota compartida, o discutirla en el chat, no son acciones de
+ * autoría. "Copiar enlace" arma `{origin}/{slug}/{note.id}` y lo copia con
  * `navigator.clipboard.writeText`; quien recibe ese link entra por
  * `App.tsx` -> `hooks/useLinkedNote.ts`, que resalta y centra la vista sobre esta
- * misma nota.
+ * misma nota. "Ver chat de esta nota" cierra este modal (`dialogRef.current?.close()`,
+ * mismo camino que "Cerrar") y abre el panel de chat ya filtrado a `note.id`
+ * (`ChatContext.openChat`, `features/chat/ChatContext.ts`) -cerrar primero porque
+ * el modal ocupa el centro de la pantalla, y el panel que se está por abrir vive
+ * en el borde, tapado mientras el `<dialog>` siga abierto.
  */
 
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useRoom } from '../../app/RoomStoreContext'
+import { useChatFocus } from '../chat/ChatContext'
 import {
   addChecklistItem,
   checklistProgress,
@@ -106,6 +111,7 @@ export function NoteDetail({
   onSave: (text: string) => void
 }) {
   const slug = useRoom((s) => s.slug)
+  const { openChat } = useChatFocus()
   const dialogRef = useRef<HTMLDialogElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -176,6 +182,11 @@ export function NoteDetail({
     if (trimmed === '') return
     commitChecklistChange(addChecklistItem(draft, trimmed))
     setNewItemText('')
+  }
+
+  function handleViewChat(): void {
+    openChat(note.id)
+    dialogRef.current?.close() // dispara handleDialogClose -> flushProse + onClose
   }
 
   async function handleCopyLink(): Promise<void> {
@@ -295,6 +306,9 @@ export function NoteDetail({
         )}
 
         <div className="detail-actions">
+          <button type="button" className="btn" onClick={handleViewChat}>
+            Ver chat de esta nota
+          </button>
           <button type="button" className="btn" onClick={handleCopyLink}>
             {linkCopied ? '¡Copiado!' : 'Copiar enlace'}
           </button>

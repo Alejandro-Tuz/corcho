@@ -25,6 +25,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRoom, useRoomActions } from '../../app/RoomStoreContext'
+import { formatClockTime } from '../../lib/time'
 import './RoomSummaryButton.css'
 
 export function RoomSummaryButton() {
@@ -90,7 +91,7 @@ export function RoomSummaryButton() {
             <>
               <p className="summary-panel-text">{summary.text}</p>
               <div className="summary-panel-footer">
-                <span className="summary-panel-meta">{formatGeneratedAt(summary.generatedAt)}</span>
+                <span className="summary-panel-meta">{formatClockTime(summary.generatedAt)}</span>
                 <button type="button" className="btn" onClick={actions.requestSummary}>
                   actualizar
                 </button>
@@ -109,10 +110,6 @@ export function RoomSummaryButton() {
       )}
     </div>
   )
-}
-
-function formatGeneratedAt(iso: string): string {
-  return new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
 }
 
 // SVG inline, no un glifo de fuente -mismo motivo que el resto de los íconos del

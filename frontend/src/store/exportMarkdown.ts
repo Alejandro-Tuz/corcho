@@ -11,12 +11,12 @@
  * `NoteDetail.tsx`), así que exportarlo es reproducir esa sintaxis, no inventar
  * una nueva.
  *
- * Título de cada nota: la primera línea de la prosa, o -si la nota es 100%
- * checklist, sin prosa- el texto del primer ítem. Mismo criterio de respaldo que
- * ya usa la tarjeta (`Note.tsx`, `checklistPreviewText`), para que el título acá
- * sea reconocible como la misma nota que se ve en el lienzo. El resto de la
- * prosa (si hay más de una línea) va como párrafo aparte, para no duplicar la
- * primera línea dos veces cuando la nota es de una sola oración -el caso común.
+ * Título de cada nota: `noteTitle` (`lib/checklist.ts`) -primera línea de la
+ * prosa, o el texto del primer ítem si la nota es 100% checklist-, para que el
+ * título acá sea reconocible como la misma nota que se ve en el lienzo. El resto
+ * de la prosa (si hay más de una línea) va como párrafo aparte, para no duplicar
+ * la primera línea dos veces cuando la nota es de una sola oración -el caso
+ * común.
  *
  * Cada bloque (nota, columna, documento) se arma como una lista de PÁRRAFOS ya
  * completos, unida recién al final con `\n\n` -nunca líneas vacías sueltas
@@ -24,7 +24,7 @@
  * espaciado entre bloques sea el mismo tenga o no contenido el bloque anterior.
  */
 
-import { checklistProgress, parseChecklist, proseOnly } from '../lib/checklist'
+import { checklistProgress, noteTitle, parseChecklist, proseOnly } from '../lib/checklist'
 import type { NoteState, NoteStatus, ParticipantState } from '../realtime/protocol'
 import { STATUS_LABELS } from './activity'
 import { sortNotesByColumn } from './selectors'
@@ -40,7 +40,7 @@ function noteToMarkdown(note: NoteState, participants: Record<string, Participan
   const proseLines = proseOnly(note.text)
     .split('\n')
     .filter((line) => line.trim() !== '')
-  const title = proseLines[0] ?? items[0]?.text ?? '(sin texto)'
+  const title = noteTitle(note.text)
   const restProse = proseLines.slice(1).join('\n\n')
 
   const author = participantName(participants, note.author_id)

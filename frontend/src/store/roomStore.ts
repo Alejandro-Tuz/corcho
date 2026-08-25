@@ -99,6 +99,14 @@ const FALLING_NOTE_DURATION_MS = 650
  * componente que lo muestra (`RoomSummaryButton.tsx`). */
 const SUMMARY_NOTICE_DURATION_MS = 5000
 
+/** Red de seguridad para `chat.typing`, no el mecanismo principal -ver
+ * `applyChatTyping` más abajo y el docstring de `ChatPanel.tsx` (Composer) sobre la
+ * capa 1, del lado de quien escribe. Más larga que el intervalo de refresco de esa
+ * capa (3s) a propósito: en el camino normal, un `active:false` explícito o un
+ * refresco llegan primero y este timeout ni se nota. Solo actúa cuando algo se
+ * perdió -la pestaña de quien escribía se cerró de golpe, un paquete se perdió. */
+const TYPING_STALE_MS = 6000
+
 export interface RoomStore {
   getState(): RoomState
   subscribe(listener: () => void): () => void
@@ -127,6 +135,10 @@ export function useRoomStore<T>(store: RoomStore, selector: (state: RoomState) =
 export function createRoomStore(room: string, identity: StoredIdentity): RoomStore {
   let state: RoomState = createInitialState()
   const listeners = new Set<() => void>()
+  // Bookkeeping privado del backstop de `chat.typing` (`applyChatTyping`, más
+  // abajo) -no vive en `RoomState`, ningún componente necesita leerlo, solo
+  // cancelar/reprogramar el timeout de cada participante.
+  const typingStaleTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   function setState(updater: (s: RoomState) => RoomState): void {
     state = updater(state)
@@ -420,6 +432,11 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
   }
 
   function applyRoomSnapshot(event: RoomSnapshot): void {
+    // Una reconexión reinicia `presence.typing` a `{}` más abajo -ningún timeout de
+    // vencimiento pendiente sigue teniendo sentido después de eso.
+    for (const timer of typingStaleTimers.values()) clearTimeout(timer)
+    typingStaleTimers.clear()
+
     setState((s) => {
       const notes: Record<string, NoteState> = {}
       for (const note of event.notes) notes[note.id] = note
@@ -490,6 +507,13 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
   }
 
   function applyPresenceLeft(event: PresenceLeft): void {
+    // Prolijidad, no corrección: un timeout de chat.typing que siguiera vivo acá
+    // haría un `omit` inofensivo sobre una entrada que este mismo evento ya borra
+    // abajo -pero no hay motivo para dejarlo colgado 6s de más sin nada que hacer.
+    const pendingTimer = typingStaleTimers.get(event.participant_id)
+    if (pendingTimer !== undefined) clearTimeout(pendingTimer)
+    typingStaleTimers.delete(event.participant_id)
+
     setState((s) => {
       const current = s.participants[event.participant_id]
       if (current === undefined) return s
@@ -775,6 +799,7 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
             `${author?.name ?? 'alguien'}: "${previewNoteText(event.text)}"`,
             author?.color ?? null,
             event.author_id,
+            true, // isChatMessage: ver store/types.ts, lo necesita useNotificationSound
           ),
         }
       }
@@ -891,7 +916,22 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
     })
   }
 
+  /**
+   * `active: true` es siempre "seguís viendo a esta persona escribir por 6s más",
+   * nunca un simple set-and-forget: cancela cualquier timeout de vencimiento previo
+   * de ESTE participante (si venía escribiendo hace rato, el refresco de la capa 1
+   * de `ChatPanel.tsx` llega justo para esto) y arma uno nuevo. `active: false`
+   * -explícito, o implícito al vencer el timeout- cancela y borra sin
+   * reprogramar nada.
+   *
+   * El timeout vive en `typingStaleTimers` (closure de `createRoomStore`), no en
+   * `RoomState`: es el mecanismo, no algo que ningún componente necesite leer.
+   */
   function applyChatTyping(event: ChatTypingOut): void {
+    const pendingTimer = typingStaleTimers.get(event.participant_id)
+    if (pendingTimer !== undefined) clearTimeout(pendingTimer)
+    typingStaleTimers.delete(event.participant_id)
+
     setState((s) => {
       const typing = { ...s.presence.typing }
       if (event.active) {
@@ -901,6 +941,17 @@ export function createRoomStore(room: string, identity: StoredIdentity): RoomSto
       }
       return { ...s, presence: { ...s.presence, typing } }
     })
+
+    if (event.active) {
+      const timer = setTimeout(() => {
+        typingStaleTimers.delete(event.participant_id)
+        setState((s) => ({
+          ...s,
+          presence: { ...s.presence, typing: omit(s.presence.typing, event.participant_id) },
+        }))
+      }, TYPING_STALE_MS)
+      typingStaleTimers.set(event.participant_id, timer)
+    }
   }
 
   const applyActions: RoomApplyActions = {

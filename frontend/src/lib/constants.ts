@@ -54,3 +54,8 @@ export const REACTIONS: readonly Reaction[] = ['✓', '👀', '🔥']
  * detalle. La creación rápida (`NoteComposer.tsx`) usa un tope propio más chico (280,
  * pensado para un título corto), no este. */
 export const NOTE_TEXT_MAX_LENGTH = 2000
+
+/** Espejo del `Field(min_length=1, max_length=1000)` de `ChatMessageIn` en
+ * protocol.py. Usado por `features/chat/ChatPanel.tsx` para el `maxLength` del
+ * composer. */
+export const CHAT_TEXT_MAX_LENGTH = 1000

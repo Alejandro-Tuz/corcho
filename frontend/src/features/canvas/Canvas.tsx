@@ -46,6 +46,15 @@
  * toolbar, sin estado propio acá -todo lo que necesita ya vive en el store
  * (`summary`/`summaryGenerating`/`summaryNotice`) o es local a ese componente
  * (ver su propio docstring).
+ *
+ * Dueño de `ChatContext` (`features/chat/ChatContext.ts`) por el mismo motivo que
+ * `CanvasFocusContext`, y separado de ese contexto a propósito -ver su docstring-.
+ * `chatWatching` es el único de los tres `useState` nuevos que este componente
+ * también LEE directo (no solo lo provee): se lo pasa a `useNotificationSound`
+ * como parámetro, porque este componente no es descendiente de su propio Provider
+ * y no podría leerlo con `useContext` (ver el docstring de ese hook). El layout de
+ * dos columnas (`.room-layout`/`.room-main`, `Canvas.css`) es lo que hace que el
+ * panel "empuje" el lienzo en vez de taparlo.
  */
 
 import { useMemo, useRef, useState } from 'react'
@@ -61,6 +70,8 @@ import { downloadTextFile } from '../../lib/downloadFile'
 import { roomToMarkdown } from '../../store/exportMarkdown'
 import { noteMatchesSearch } from '../../store/selectors'
 import { Activity } from '../activity/Activity'
+import { ChatContext } from '../chat/ChatContext'
+import { ChatPanel } from '../chat/ChatPanel'
 import { NoteComposer } from '../notes/NoteComposer'
 import { ParticipantList } from '../presence/ParticipantList'
 import { RemoteCursors } from '../presence/RemoteCursors'
@@ -96,12 +107,15 @@ export function Canvas({ noteId }: { noteId: string | null }) {
   const roomName = useRoom((s) => s.name)
   const participants = useRoom((s) => s.participants)
   const actions = useRoomActions()
-  const { muted, toggleMuted } = useNotificationSound()
 
   const [composerOpen, setComposerOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [highlightedParticipantId, setHighlightedParticipantId] = useState<string | null>(null)
   const [followedParticipantId, setFollowedParticipantId] = useState<string | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatFilterNoteId, setChatFilterNoteId] = useState<string | null>(null)
+  const [chatWatching, setChatWatching] = useState(false)
+  const { muted, toggleMuted } = useNotificationSound(chatWatching)
   const canvasRef = useRef<HTMLDivElement>(null)
   const throttledSendCursor = useMemo(
     () => throttle(actions.sendCursor, CURSOR_BROADCAST_INTERVAL_MS),
@@ -116,11 +130,22 @@ export function Canvas({ noteId }: { noteId: string | null }) {
     setFollowedParticipantId((current) => (current === participantId ? null : participantId))
   }
 
+  function toggleChatOpen(): void {
+    setChatOpen((o) => !o)
+  }
+
+  function openChat(chatNoteId?: string | null): void {
+    setChatOpen(true)
+    if (chatNoteId !== undefined) setChatFilterNoteId(chatNoteId)
+  }
+
   useFollowScroll(followedParticipantId, () => setFollowedParticipantId(null))
   const searchInputRef = useKeyboardShortcuts({
     onNewNote: () => setComposerOpen(true),
     searchQuery,
     onClearSearch: () => setSearchQuery(''),
+    chatOpen,
+    onCloseChat: () => setChatOpen(false),
   })
   const { linkedNoteId, noteNotFound } = useLinkedNote(
     noteId,
@@ -166,122 +191,141 @@ export function Canvas({ noteId }: { noteId: string | null }) {
         linkedNoteId,
       }}
     >
-      <div>
-        <div className="canvas-toolbar">
-          <span className="canvas-brand">Corcho</span>
+      <ChatContext.Provider
+        value={{
+          open: chatOpen,
+          toggleOpen: toggleChatOpen,
+          openChat,
+          filterNoteId: chatFilterNoteId,
+          setFilterNoteId: setChatFilterNoteId,
+          watching: chatWatching,
+          setWatching: setChatWatching,
+        }}
+      >
+        <div className="room-layout">
+          <div className="room-main">
+            <div className="canvas-toolbar">
+              <span className="canvas-brand">Corcho</span>
 
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => setComposerOpen(true)}
-            title="Nota nueva (N)"
-          >
-            + nota
-          </button>
-
-          <button
-            type="button"
-            className="btn"
-            onClick={handleExport}
-            title="Descargar el tablero como markdown"
-          >
-            exportar
-          </button>
-
-          <RoomSummaryButton />
-
-          <div className="canvas-bg-picker">
-            <span className="canvas-bg-label">fondo</span>
-            {BACKGROUNDS.map((bg) => (
               <button
-                key={bg}
                 type="button"
-                title={bg}
-                aria-pressed={bg === background}
-                className={bg === background ? 'canvas-bg-swatch canvas-bg-swatch--active' : 'canvas-bg-swatch'}
-                onClick={() => actions.setBackground(bg)}
-                style={{ background: BACKGROUND_COLORS[bg] }}
-              />
-            ))}
-          </div>
-
-          <ParticipantList />
-
-          <div className="canvas-search">
-            <input
-              ref={searchInputRef}
-              type="search"
-              className="canvas-search-input"
-              placeholder="Buscar… ( / )"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            {searchQuery.trim() !== '' && (
-              <span
-                className={
-                  matchingNoteCount === 0
-                    ? 'canvas-search-count canvas-search-count--empty'
-                    : 'canvas-search-count'
-                }
+                className="btn btn-primary"
+                onClick={() => setComposerOpen(true)}
+                title="Nota nueva (N)"
               >
-                {matchingNoteCount === 0 ? 'sin coincidencias' : `${matchingNoteCount}/${noteList.length}`}
+                + nota
+              </button>
+
+              <button
+                type="button"
+                className="btn"
+                onClick={handleExport}
+                title="Descargar el tablero como markdown"
+              >
+                exportar
+              </button>
+
+              <RoomSummaryButton />
+
+              <div className="canvas-bg-picker">
+                <span className="canvas-bg-label">fondo</span>
+                {BACKGROUNDS.map((bg) => (
+                  <button
+                    key={bg}
+                    type="button"
+                    title={bg}
+                    aria-pressed={bg === background}
+                    className={
+                      bg === background ? 'canvas-bg-swatch canvas-bg-swatch--active' : 'canvas-bg-swatch'
+                    }
+                    onClick={() => actions.setBackground(bg)}
+                    style={{ background: BACKGROUND_COLORS[bg] }}
+                  />
+                ))}
+              </div>
+
+              <ParticipantList />
+
+              <div className="canvas-search">
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  className="canvas-search-input"
+                  placeholder="Buscar… ( / )"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery.trim() !== '' && (
+                  <span
+                    className={
+                      matchingNoteCount === 0
+                        ? 'canvas-search-count canvas-search-count--empty'
+                        : 'canvas-search-count'
+                    }
+                  >
+                    {matchingNoteCount === 0
+                      ? 'sin coincidencias'
+                      : `${matchingNoteCount}/${noteList.length}`}
+                  </span>
+                )}
+              </div>
+
+              <span className={`canvas-status ${STATUS_CLASS[connectionStatus]}`}>
+                {STATUS_LABEL[connectionStatus]}
               </span>
+
+              <button
+                type="button"
+                className="canvas-mute-btn"
+                onClick={toggleMuted}
+                aria-pressed={muted}
+                aria-label={muted ? 'Activar sonido de notificaciones' : 'Silenciar notificaciones'}
+                title={muted ? 'Activar sonido de notificaciones' : 'Silenciar notificaciones'}
+              >
+                {muted ? <MutedIcon /> : <SpeakerIcon />}
+              </button>
+            </div>
+
+            {noteNotFound && (
+              <div className="canvas-note-notice">
+                La nota de ese enlace ya no existe -se borró, o el link no es válido.
+              </div>
             )}
+
+            <Activity />
+
+            <div
+              ref={canvasRef}
+              data-canvas-root
+              onPointerMove={handlePointerMove}
+              className="canvas-board"
+              style={{ background: BACKGROUND_COLORS[background] }}
+            >
+              {COLUMNS.map((col) => (
+                <Column key={col.status} status={col.status} label={col.label} />
+              ))}
+              <RemoteCursors />
+            </div>
+
+            <NoteComposer
+              open={composerOpen}
+              onClose={() => setComposerOpen(false)}
+              onCreate={(input) =>
+                actions.createNote({
+                  kind: input.kind,
+                  status: 'blocked',
+                  text: input.text,
+                  color: input.color,
+                  positionX: randomOffset(),
+                  positionY: randomOffset(),
+                  capacity: input.capacity,
+                })
+              }
+            />
           </div>
-
-          <span className={`canvas-status ${STATUS_CLASS[connectionStatus]}`}>
-            {STATUS_LABEL[connectionStatus]}
-          </span>
-
-          <button
-            type="button"
-            className="canvas-mute-btn"
-            onClick={toggleMuted}
-            aria-pressed={muted}
-            aria-label={muted ? 'Activar sonido de notificaciones' : 'Silenciar notificaciones'}
-            title={muted ? 'Activar sonido de notificaciones' : 'Silenciar notificaciones'}
-          >
-            {muted ? <MutedIcon /> : <SpeakerIcon />}
-          </button>
+          <ChatPanel />
         </div>
-
-        {noteNotFound && (
-          <div className="canvas-note-notice">
-            La nota de ese enlace ya no existe -se borró, o el link no es válido.
-          </div>
-        )}
-
-        <Activity />
-
-        <div
-          ref={canvasRef}
-          data-canvas-root
-          onPointerMove={handlePointerMove}
-          className="canvas-board"
-          style={{ background: BACKGROUND_COLORS[background] }}
-        >
-          {COLUMNS.map((col) => (
-            <Column key={col.status} status={col.status} label={col.label} />
-          ))}
-          <RemoteCursors />
-        </div>
-
-        <NoteComposer
-          open={composerOpen}
-          onClose={() => setComposerOpen(false)}
-          onCreate={(input) =>
-            actions.createNote({
-              kind: input.kind,
-              status: 'blocked',
-              text: input.text,
-              color: input.color,
-              positionX: randomOffset(),
-              positionY: randomOffset(),
-              capacity: input.capacity,
-            })
-          }
-        />
-      </div>
+      </ChatContext.Provider>
     </CanvasFocusContext.Provider>
   )
 }

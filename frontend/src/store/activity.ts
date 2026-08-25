@@ -24,6 +24,10 @@
  * en vez de importarlas: `store/` no depende de `features/` en esta estructura
  * (ver CLAUDE.md), y son tres y cinco strings fijos, no un catálogo que vaya a
  * cambiar de un lado sin el otro.
+ *
+ * `appendActivity` toma un quinto parámetro opcional, `isChatMessage` -ver el
+ * docstring de `ActivityEntry` en `store/types.ts` sobre por qué hace falta
+ * marcarlo, no inferirlo de `text`.
  */
 
 import type { Background, NoteKind, NoteStatus, ParticipantColor } from '../realtime/protocol'
@@ -37,6 +41,7 @@ export function appendActivity(
   text: string,
   color: ParticipantColor | null,
   participantId: string | null,
+  isChatMessage = false,
 ): ActivityEntry[] {
   const entry: ActivityEntry = {
     id: crypto.randomUUID(),
@@ -44,6 +49,7 @@ export function appendActivity(
     text,
     color,
     participantId,
+    isChatMessage,
   }
   const next = [...activity, entry]
   return next.length > MAX_ENTRIES ? next.slice(next.length - MAX_ENTRIES) : next

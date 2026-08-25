@@ -133,6 +133,14 @@ export interface ActivityEntry {
   text: string
   color: ParticipantColor | null
   participantId: string | null
+  /** true solo para el renglón de un `chat.message` -mismo motivo que sumó
+   * `participantId` en su momento: `hooks/useNotificationSound.ts` necesita un dato
+   * más que `text`/`color` no dan, para aplicarle a UN tipo de evento (y no a los
+   * demás) la condición extra de "¿se está viendo el chat en el fondo ahora mismo?"
+   * (`features/chat/ChatContext.ts`). Reconstruir esto desde `text` con un regex
+   * sería la "segunda lista informal de qué es actividad" que el propio
+   * useNotificationSound.ts dice explícitamente que evita. */
+  isChatMessage: boolean
 }
 
 export interface RoomState {

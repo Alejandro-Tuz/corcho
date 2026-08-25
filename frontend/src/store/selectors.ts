@@ -4,7 +4,7 @@
  * que no exista un segundo lugar donde se pueda desincronizar de `notes`.
  */
 
-import type { NoteState, NoteStatus, ParticipantState } from '../realtime/protocol'
+import type { ChatMessageState, NoteState, NoteStatus, ParticipantState } from '../realtime/protocol'
 
 /**
  * Orden de notas: `(created_at, id)` ascendente, no orden de llegada.
@@ -151,4 +151,31 @@ export function sortParticipantsForList(
 
   participantOrderCache.set(participants, sorted)
   return sorted
+}
+
+/**
+ * `note_id` distintos entre los mensajes de chat -para el selector de filtro por
+ * tarea (`features/chat/ChatPanel.tsx`). En orden de primera aparición, no
+ * alfabético ni por título: resolver el título (y decidir qué hacer si la nota ya
+ * no existe, ver CLAUDE.md sobre ese hueco conocido) es responsabilidad del panel,
+ * que sí tiene `state.notes` a mano -acá no.
+ *
+ * Memoizado igual que el resto de este archivo, por identidad de `messages`.
+ */
+const chatNoteIdsCache = new WeakMap<ChatMessageState[], string[]>()
+
+export function distinctChatNoteIds(messages: ChatMessageState[]): string[] {
+  const cached = chatNoteIdsCache.get(messages)
+  if (cached !== undefined) return cached
+
+  const seen = new Set<string>()
+  const ids: string[] = []
+  for (const message of messages) {
+    if (message.note_id === null || seen.has(message.note_id)) continue
+    seen.add(message.note_id)
+    ids.push(message.note_id)
+  }
+
+  chatNoteIdsCache.set(messages, ids)
+  return ids
 }

@@ -543,6 +543,205 @@ agregar una función o terminar bien una existente, terminar bien la existente.
     pasa a atenuada si no matchea la búsqueda); un id inventado en la URL
     muestra el aviso de "no existe"; recargar sobre el mismo link no lo pierde,
     confirma que la URL quedó intacta.
+- **Resumen con IA, difundido a toda la sala** ("Nuevo, aprobado" #5 -movido acá,
+  hecho-, el único ítem de esa lista que necesitó protocolo nuevo). Diseño mostrado y
+  aprobado antes de escribir código, con cuatro decisiones explícitas del usuario:
+  persistencia en Redis (no Postgres, no es una fuente de verdad de negocio), la
+  dependencia nueva `anthropic`, el modelo `claude-haiku-4-5` -no el default del
+  catálogo de la skill de la API, elegido a propósito por costo y latencia en una
+  sala pública sin autenticación-, y que el límite de uso se cobra siempre, incluso
+  si la generación falla.
+  - `protocol.py`/`protocol.ts`: cuatro eventos nuevos. `room.summary_request`
+    (cliente, sin campos). `room.summary_requested` (difundido de inmediato a toda
+    la sala, "generando..."). `room.summary` (resultado; `text`/`error` mutuamente
+    excluyentes, forzado con un `model_validator`, mismo espíritu que el CHECK
+    `kind_capacity`). `room.summary_rejected` (solo al socket que lo pidió, mismo
+    trato que `NoteClaimRejected`: límite de uso, ya hay una generación en curso, o
+    sin `AI_API_KEY` configurada). `RoomSnapshot.summary` opcional, para que quien se
+    une vea el último resumen guardado.
+  - `services/summary.py`: primer service async del proyecto -no solo Postgres
+    síncrono, también Redis async y la llamada a la IA-. Límite de uso con dos claves
+    de Redis: `lock` (TTL corto, red de seguridad) y `cooldown` (5 minutos, se cobra
+    al ACEPTAR el pedido, no al terminar -para que una IA lenta o caída no habilite
+    reintentos en loop). La llamada nunca bloquea el loop del socket: se acepta
+    rápido (dos operaciones de Redis) y la generación corre en
+    `asyncio.create_task()`, guardada en `app.state.background_tasks` (`main.py`)
+    para que `asyncio` no la recolecte a mitad de camino -publica ella misma cuando
+    termina, única excepción documentada a "`handlers.py` nunca publica antes del
+    commit", porque acá no hay ninguna fila de Postgres bloqueada esperando.
+  - El prompt: solo notas (no chat, todavía sin UI), agrupadas por columna, con
+    "última actividad hace N" -etiqueta elegida a propósito, pedido explícito del
+    usuario, para no prometer más de lo que `updated_at` mide de verdad (se pisa con
+    cualquier UPDATE, no solo cambios de contenido)-, checklist y cupos. Instruido a
+    sintetizar patrones (bloqueado, estancado, sin gente) en un solo párrafo de hasta
+    400 caracteres, no a enumerar notas.
+  - `features/summary/RoomSummaryButton.tsx`: botón + panel flotante NO modal en la
+    toolbar -a propósito, no un `<dialog>`, para que se lea sin dejar de ver el
+    tablero-. "No leído" es local al componente (mismo criterio que
+    `CanvasFocusContext`: preferencia de este visor, no estado de sala).
+  - `core/config.py`: `ai_api_key: str | None = None`, única excepción a propósito a
+    "sin default para configuración de infraestructura" -sin la clave, el resto de
+    la app sigue funcionando igual, solo esta función queda apagada.
+  - Verificado contra Postgres y Redis reales (no simulado): `_build_prompt` sobre
+    una sala sembrada de verdad; la secuencia completa del gate de Redis
+    (`STARTED -> ALREADY_GENERATING -> RATE_LIMITED(300) -> get_last` recuperando lo
+    guardado); el validador de `RoomSummary` rechazando `text`+`error` juntos o
+    ninguno. No se pudo probar la llamada real a la API de Anthropic -sin la clave
+    del usuario a mano, no correspondía pedirla.
+- **Chat** (último ítem grande de "Comprometido, pendiente" -movido acá, hecho
+  entero, ver "Diagnóstico retomado y cerrado" más abajo para la única vuelta extra
+  que hizo falta-; el backend ya existía entero -`services/chat.py`,
+  los eventos de `protocol.py`, `chat_messages` en `room.snapshot`-, esto fue
+  enteramente frontend). Diseño mostrado y aprobado en dos pasadas: panel/scroll/no
+  leídos/filtro primero, sonido y Esc en una segunda vuelta -a pedido explícito de
+  revisar cómo suena hoy antes de tocar nada, y de no cambiar ese comportamiento sin
+  decirlo primero-.
+  - **Panel lateral** (`features/chat/ChatPanel.tsx`): empuja el lienzo, nunca lo
+    tapa -mismo principio que "atenuar, no ocultar" de buscar/resaltar-. Colapsado
+    por defecto: tira de 44px `position: sticky` (no `fixed`, para seguir empujando
+    el layout mientras queda fija en pantalla en un tablero mucho más alto que la
+    ventana), crece a 340px al abrir. `Canvas.tsx` pasó a un layout de dos columnas
+    (`.room-layout`/`.room-main`, `Canvas.css`) -seguro por el mismo motivo que ya
+    soportaba achicar la ventana: la posición de una nota es relativa a la caja de
+    SU columna, no a un lienzo global.
+  - `features/chat/ChatContext.ts`: abierto/cerrado, filtro por tarea, "watching"
+    -contexto propio, no una extensión de `CanvasFocusContext` (ese tiene un
+    contrato preciso, "la misma intersección que atenúa notas", y el chat no atenúa
+    nada en el lienzo)-. `Canvas.tsx` lo provee, igual que `CanvasFocusContext`.
+  - **Autoscroll**: `hooks/useStickyScroll.ts` (quinto inquilino de `hooks/`,
+    genérico, no atado a chat). Baja solo con cada mensaje nuevo si la persona está
+    cerca del fondo (umbral ~64px); si está leyendo hacia arriba, no se mueve.
+    Mandar el propio mensaje fuerza el próximo scroll (`stickNextScroll()`) aunque se
+    estuviera leyendo arriba.
+  - **No leídos**: contador GLOBAL, no por nota filtrada -corte de alcance explícito
+    y confirmado con el usuario-, local al componente. Se resetea cuando el panel
+    está abierto Y en el fondo (`watching = open && isAtBottom`), más una vez en la
+    transición a `connected` -`room.snapshot` trae hasta 200 mensajes de historial
+    ANTES de esa transición (orden ya garantizado, lo usa `useLinkedNote.ts`), sin
+    ese segundo disparador el historial se contaría como "no leído" en cada
+    reconexión-. Ajustado durante el render, no en un efecto (mismo patrón que
+    `prevStatus`/`justLanded` de `Note.tsx`): la primera versión usaba `useEffect` +
+    `setState`, ESLint (`react-hooks/set-state-in-effect`) lo marcó y se corrigió al
+    patrón de render en vez de silenciarlo.
+  - **Filtro por tarea**: selector en el header por `note_id` distinto entre los
+    mensajes (`distinctChatNoteIds`, `store/selectors.ts`), resuelto a título con
+    `noteTitle()` (`lib/checklist.ts`, nuevo -unifica una regla que ya vivía
+    duplicada en `store/exportMarkdown.ts` y por separado en `Note.tsx`, que resultó
+    ser una tercera variante distinta -cuerpo completo, no título de una línea-, así
+    que esa no se tocó). Un solo estado maneja lectura Y escritura: el filtro activo
+    es también el `note_id` con el que se manda el próximo mensaje. Entrada desde una
+    nota: `NoteDetail.tsx` suma "Ver chat de esta nota" en `.detail-actions` (cierra
+    el modal, abre el panel ya filtrado).
+  - **`note_id` nulo**: no distingue "nunca tuvo nota" de "la tenía, se borró antes
+    de llegar" -mismo `null`, sin rastro, `services/chat.py` ya lo hace así a
+    propósito (`ON DELETE SET NULL`)-, así que sin etiqueta es la lectura correcta en
+    los dos casos. Caso distinto y más chico, documentado como límite conocido más
+    abajo: un mensaje con `note_id` NO nulo cuya nota se borra DESPUÉS de que ese
+    cliente ya lo tenía en `chatMessages` -`note.delete` no reemite los mensajes que
+    la perdieron- muestra "una nota borrada" en vez de un chip roto; se autocorrige
+    con la próxima reconexión.
+  - **`chat.typing`, dos capas** -el protocolo tiene `active`, pero nada obliga a
+    mandar `false` si alguien deja de escribir sin borrar nada-: capa 1
+    (`ChatComposer` dentro de `ChatPanel.tsx`) es un idle-timeout de 4s del lado de
+    quien escribe, con refresco throttled cada 3s mientras sigue tecleando de
+    corrido; capa 2 (`roomStore.applyChatTyping`) es un backstop de 6s del lado de
+    quien recibe, por si la capa 1 nunca llega (pestaña cerrada de golpe, paquete
+    perdido). Verificado en vivo con dos identidades reales distintas: el indicador
+    aparece del lado de quien recibe y se apaga solo a los 4s de inactividad -ver
+    "Diagnóstico retomado y cerrado" más abajo para el porqué de la primera vuelta
+    de prueba fallida (no era un bug de código).
+  - **Sonido**: reusa la MISMA señal que los no leídos (`watching`, publicada a
+    `ChatContext` desde `ChatPanel.tsx`) para decidir si un `chat.message` ajeno
+    suena -pedido explícito: no una segunda condición aparte-. `ActivityEntry` suma
+    `isChatMessage: boolean` (mismo precedente que ya sumó `participantId` en su
+    momento: un consumidor nuevo necesita un dato que `text`/`color` no dan). El
+    resto de los eventos -conectar, notas, cupos, reacciones, fondo, resumen- siguen
+    sonando exactamente igual que antes, sin condición extra: decisión explícita de
+    NO tocar eso en este pase, solo reportarlo -ver "Reportado, sin tocar" más
+    abajo-.
+  - **Esc cierra el panel**: sumado a la cascada de `useKeyboardShortcuts.ts`, entre
+    "hay un `<dialog>` abierto" (gana siempre) y "hay una búsqueda en curso".
+  - **Pulido visual**, a pedido explícito tras ver la primera versión funcional
+    ("la funcionalidad está perfecta... pero estéticamente queda plano"). Dirección
+    mostrada sobre un mockup de tres mensajes (antes/después, con las cuatro
+    decisiones anotadas) y aprobada antes de aplicarla a todo el panel -mismo
+    criterio que el post-it, día 3-. Ningún token nuevo, solo los que ya existen:
+    - **Mío vs. ajeno**: alineación (propio a la derecha, `flex-direction:
+      row-reverse`) + fondo con tinte cork translúcido en el propio, en vez del
+      mismo papel neutro para los dos.
+    - **Color de participante en el nombre**: `PARTICIPANT_COLOR_HEX[author.color]`
+      -mismo color que ya tiene el cursor y el pin de sus notas, sin catálogo
+      nuevo.
+    - **Avatar circular de 24px** junto al nombre: `AVATAR_EMOJI`, misma técnica
+      que `.note-pin-head`/`.note-pin-icon` (círculo de color de participante,
+      ícono en escala de grises -nunca una silueta blanca pura, ese error ya se
+      había evitado una vez en el pulido de las notas).
+    - **Burbuja con forma de post-it**: radio bajo (4px), esquina doblada plana
+      -misma firma que `.note-card::after`, a otra escala- y la misma doble
+      sombra suave que ya usan las notas, para que se lea "de la misma familia"
+      en vez de texto suelto.
+    - La etiqueta "en: nota" y la hora en monoespaciada -lo que ya estaba
+      resuelto- no se tocaron, a pedido explícito.
+    - **Avatar atenuado si el autor está desconectado, según el estado ACTUAL**:
+      decisión de producto tomada a conciencia, no un efecto colateral -pedida y
+      documentada así explícitamente en el docstring de `ChatPanel.tsx`-. El chat
+      es historial, no presencia: la atenuación se calcula contra
+      `state.participants[author_id].disconnected_at` en el momento del render,
+      no contra una foto de si esa persona estaba conectada al mandar el
+      mensaje, así que un mensaje viejo SÍ se apaga de golpe en cuanto su autor
+      se desconecta mientras se lo está leyendo -es información útil ("¿tiene
+      sentido esperar respuesta?"), no algo a esconder. Mismo tratamiento que ya
+      usa `ParticipantList.tsx` para lo mismo (`opacity: 0.4`), no uno nuevo, y
+      acotado SOLO al avatar -ni el nombre ni el texto se atenúan, es un dato
+      secundario que no puede competir con el mensaje ni con el color de
+      participante del nombre.
+    - Verificado en el navegador con dos identidades reales y distintas: mensaje
+      propio a la derecha con tinte cork, ajeno a la izquierda con papel neutro;
+      al cerrar la pestaña de quien escribió un mensaje, su avatar se atenúa de
+      inmediato en la otra pantalla mientras su nombre y su texto quedan
+      intactos.
+  - **Reportado al usuario, sin tocar por pedido explícito**: hoy el sonido suena
+    con CUALQUIER evento que deja renglón en la franja de actividad (conectar/
+    desconectar, crear/mover/borrar una nota, cupos, reacciones, fondo, resumen,
+    chat), no solo chat -comportamiento deliberado desde que se construyó el sonido
+    (día 3), y puede sentirse ruidoso en una sala activa; cupos y movimientos entre
+    columnas son probablemente los más frecuentes. Si se siente demasiado después de
+    usarlo, la salida más simple sería reducir la lista a lo que de verdad necesita
+    atención -no aplicado en este pase-.
+  - Verificado con dos pestañas reales (Chrome vía automatización) contra el backend
+    y Redis corriendo de verdad, sala nueva creada para la prueba: un mensaje
+    mandado aparece en vivo del otro lado con autoscroll; con el panel cerrado, un
+    mensaje nuevo deja el badge de no leídos en "1"; abrirlo lo limpia y hace scroll
+    al fondo; Esc cierra el panel sin tocar una búsqueda en curso.
+
+**Diagnóstico retomado y cerrado** (era "Pendiente de diagnosticar" en la vuelta
+anterior -no era un bug de código):
+
+- **`chat.typing` funciona correctamente de punta a punta.** Con los mismos dos logs
+  temporales que se habían planeado (`ChatComposer.handleChange` y
+  `roomStore.applyChatTyping`, ya revertidos -no quedaron en el código-) se encontró
+  la causa real: las dos pestañas de la prueba anterior compartían la MISMA
+  identidad. `lib/identity.ts` guarda `participant_id` en `localStorage` por sala, y
+  `localStorage` es compartido entre pestañas del mismo origen -al recargar las dos
+  pestañas juntas para instrumentar los logs, la reconexión de una pisó la entrada
+  de la otra en esa clave compartida (las dos son `http://localhost:5173`), y las
+  dos terminaron reidentificándose como "Alicia". El filtro `participantId !==
+  myParticipantId` de `ChatPanel.tsx` -correcto: no tiene sentido mostrarme a mí
+  mismo "escribiendo"- descartaba el evento porque, para el store de la pestaña
+  receptora, el que escribía ERA "yo". Confirmado forzando una segunda identidad de
+  verdad (`localStorage.setItem` con un `participant_id` distinto antes de
+  recargar): el indicador "Alicia está escribiendo…" aparece de inmediato del lado
+  de Beto, y se apaga solo a los cuatro segundos de inactividad -las dos capas
+  documentadas en el bullet de "Chat" más arriba, verificadas en vivo, no solo por
+  lectura de código.
+  - Nota para la próxima vez que haga falta reproducir algo con "dos personas": dos
+    pestañas del mismo perfil de Chrome comparten `localStorage` -sirve para probar
+    reconexión/multi-pestaña de la MISMA persona (que es justo lo que ya verifica la
+    decisión de diseño de "Multi-pestaña" más abajo), pero no alcanza para simular
+    dos participantes distintos si de entrada comparten la sala y algo dispara una
+    reconexión de las dos casi a la vez. Con las pestañas ya identificadas por
+    separado y sin recargarlas juntas -que fue como se armó la prueba original, día
+    2, y funcionó- no pasa nada de esto.
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
@@ -573,6 +772,14 @@ agregar una función o terminar bien una existente, terminar bien la existente.
   garantizado. No pasa en el uso real (cada `chat.message` por WS es su propia
   transacción), pero sí en scripts que inserten varios mensajes sin commitear entre
   medio -`scripts/seed.py` tiene que tenerlo presente-.
+- **Chip de nota en un mensaje de chat, con esa nota borrada mientras el cliente
+  seguía conectado**: `note.delete` no reemite los mensajes que pierden su `note_id`
+  -eso pasa server-side vía `ON DELETE SET NULL`, sin evento de protocolo propio-, así
+  que la copia local de ese mensaje en `chatMessages` sigue con el `note_id` viejo
+  hasta la próxima reconexión. `ChatPanel.tsx` lo cubre con un chip "una nota borrada"
+  en vez de uno roto, pero no es la nada que idealmente mostraría (`null`, como
+  cualquier otro mensaje sin nota). Se autocorrige solo con el próximo
+  `room.snapshot`; no vale la pena un evento de protocolo nuevo solo para esto.
 
 **Siguiente, en este orden (semana hasta la entrevista, alcance ampliado en consecuencia):**
 
@@ -581,50 +788,20 @@ agregar una función o terminar bien una existente, terminar bien la existente.
 1. QR y responsive en celular.
 2. Deploy en Render.
 3. Modo teatro (`scripts/theater.py`) y README con diagrama.
-4. Chat.
 
-**Nuevo, aprobado** -alcance ampliado esta semana; la regla de más abajo aplica a todo
-este bloque-:
+Chat (era el punto 4 de esta lista) y resumen con IA (era el punto 5 de "Nuevo,
+aprobado") pasaron a "Hecho" más arriba, los dos cerrados sin nada pendiente.
 
-5. **Resumen con IA, difundido a toda la sala.** El único ítem de toda esta lista que
-   necesita un evento de protocolo nuevo -todo lo demás se construye leyendo el store
-   que ya existe-. Alguien lo pide, el servidor genera el resumen y lo difunde como
-   cualquier otro evento: todos lo ven aparecer a la vez, no solo quien lo pidió.
-   Pieza de diseño, no solo de código -mostrar el diseño y esperar revisión antes de
-   escribir nada, ya es la convención del proyecto ("Flujo de trabajo con Claude")-,
-   pero el bosquejo:
-   - La clave de la API vive solo en el backend (`core/config.py`), nunca en el
-     cliente.
-   - Límite de uso -un resumen por sala cada N minutos-, porque es una sala sin
-     autenticación a la que se entra por link: sin este límite, cualquiera con el
-     link puede vaciar la cuota de la API a fuerza de pedidos. Sin tabla nueva: el
-     candidato natural es una clave en Redis con TTL (`core/redis.py` ya está
-     cableado, y esto es justo el tipo de estado efímero para el que sirve -no es un
-     contador de negocio como `taken_count`, el invariante 1 no aplica acá).
-   - Estado "generando" visible: la llamada a la IA tarda segundos, y todo lo demás
-     en la app es instantáneo -sin esto, la sala se siente rota mientras se espera.
-     Probablemente dos eventos, no uno: algo como `room.summary_requested`
-     (difundido de inmediato, para que toda la sala vea "generando...") y
-     `room.summary` (difundido cuando la IA responde, con el texto o un error).
-     Nombres y forma exacta, a confirmar en el diseño.
-   - La llamada a la IA no puede bloquear el loop de mensajes del socket
-     (`realtime/endpoint.py`/`handlers.py` son síncronos hoy): necesita correr
-     aparte y publicar su resultado cuando termine, en vez de que
-     `handlers.dispatch()` devuelva el evento de una -mismo cuidado que ya costó el
-     primer bug de concurrencia del día 2: nunca bloquear el camino síncrono con
-     algo lento.
+**Regla para todo lo nuevo que se sume de acá en más:** cero tablas nuevas, cero
+eventos de protocolo nuevos, salvo que se diga y se muestre el diseño antes de
+escribir -mismo criterio que ya se siguió para el resumen con IA, el único caso hasta
+ahora que necesitó un evento nuevo de verdad. Si algo empieza a pedir una tabla o un
+evento que no esté ya anotado acá, parar y decirlo antes de escribirlo.
 
-**Regla para todo lo nuevo:** cero tablas nuevas, cero eventos de protocolo nuevos
--salvo el resumen con IA (punto 5), que sí necesita uno para difundirse a toda la
-sala-. Todo lo demás de esta lista se construye leyendo el store que ya existe. Si algo
-de lo de arriba empieza a pedir una tabla o un evento que no está ya anotado acá, parar
-y decirlo antes de escribirlo.
-
-**Si el tiempo aprieta, el chat sigue siendo lo primero que sale** de la lista
-comprometida -es la pieza más cara de lo que queda ahí (persistencia, scroll, no
-leídos, filtro por tarea, typing) y la que menos aporta al momento central del demo:
-una nota moviéndose en dos pantallas a la vez. Dentro de lo nuevo no hay un orden de
-corte decidido todavía -si aprieta ahí, es una conversación aparte.
+**Si el tiempo aprieta:** con el chat ya construido y cerrado, ya no es el candidato
+obvio a cortar que era antes. Entre lo que queda comprometido
+(QR/responsive, deploy, modo teatro) no hay un orden de corte decidido todavía -si
+aprieta ahí, es una conversación aparte.
 
 ## Stack
 
@@ -683,9 +860,11 @@ Los archivos marcados con `[x]` ya existen. El resto está pendiente.
 corcho/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py          [x]   wiring de ConnectionManager/RedisBroker/Settings
+│   │   ├── main.py          [x]   wiring de ConnectionManager/RedisBroker/Settings/
+│   │   │                          redis compartido/background_tasks (resumen con IA)
 │   │   ├── core/
-│   │   │   ├── config.py    [x]   Settings con pydantic-settings
+│   │   │   ├── config.py    [x]   Settings con pydantic-settings (ai_api_key opcional,
+│   │   │   │                      única excepción a "sin default para infra")
 │   │   │   ├── redis.py     [x]   pool de conexión, nada más
 │   │   │   ├── ids.py       [x]   slug de sala para URL/QR
 │   │   │   └── constants.py [x]   catálogos visuales, un Literal por tupla
@@ -710,7 +889,9 @@ corcho/
 │   │       ├── rooms.py     [x]
 │   │       ├── notes.py     [x]
 │   │       ├── claims.py    [x]   cupos: tomar y soltar
-│   │       └── chat.py      [x]
+│   │       ├── chat.py      [x]
+│   │       └── summary.py   [x]   resumen con IA: límite de uso en Redis, prompt,
+│   │                              llamada a Anthropic, persistencia del último
 │   ├── scripts/
 │   │   ├── seed.py          [x]   sala precargada del demo
 │   │   └── theater.py             clientes WS falsos (modo teatro)
@@ -743,24 +924,31 @@ corcho/
 │   │   ├── features/
 │   │   │   ├── onboarding/   [x]  nombre + avatar + color
 │   │   │   ├── canvas/       [x]  lienzo, fondo (con patrones), columnas, buscar,
-│   │   │   │                      resaltar, seguir y enlace directo
+│   │   │   │                      resaltar, seguir, enlace directo y layout de dos
+│   │   │   │                      columnas para el panel de chat
 │   │   │   │                      (CanvasFocusContext.ts)
 │   │   │   ├── notes/        [x]  post-it, drag, cupos, reacciones, composer,
 │   │   │   │                      animación de caída y de aterrizaje, detalle
-│   │   │   │                      expandible con checklist y "Copiar enlace"
-│   │   │   │                      (NoteDetail.tsx)
+│   │   │   │                      expandible con checklist, "Copiar enlace" y
+│   │   │   │                      "Ver chat de esta nota" (NoteDetail.tsx)
 │   │   │   ├── presence/     [x]  cursores remotos, lista de participantes
 │   │   │   │                      (ParticipantList.tsx)
 │   │   │   ├── activity/     [x]  franja de eventos recientes
-│   │   │   └── chat/               no empezado -último en la lista, a propósito
+│   │   │   ├── summary/      [x]  botón + panel del resumen con IA
+│   │   │   │                      (RoomSummaryButton.tsx)
+│   │   │   └── chat/         [x]  panel lateral, filtro por tarea, typing
+│   │   │                          (ChatPanel.tsx, ChatContext.ts)
 │   │   ├── components/            sin uso todavía -cada feature trae su propio CSS
 │   │   ├── hooks/             [x] useNotificationSound.ts, useFollowScroll.ts,
-│   │   │                          useKeyboardShortcuts.ts, useLinkedNote.ts
+│   │   │                          useKeyboardShortcuts.ts, useLinkedNote.ts,
+│   │   │                          useStickyScroll.ts (autoscroll genérico, chat)
 │   │   └── lib/               [x] constantes, identity, colores, avatares, ids,
-│   │                               checklist en markdown (checklist.ts), sonido de
+│   │                               checklist en markdown (checklist.ts, incluye
+│   │                               noteTitle()), sonido de
 │   │                               notificación (notificationSound.ts), foco de
 │   │                               teclado (domFocus.ts), descarga de archivos
-│   │                               (downloadFile.ts)
+│   │                               (downloadFile.ts), formato de hora
+│   │                               (time.ts)
 │   └── public/
 ├── .github/workflows/ci.yml [x]
 ├── docker-compose.yml       [x]

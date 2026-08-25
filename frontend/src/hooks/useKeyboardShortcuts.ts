@@ -23,11 +23,19 @@
  * se quiere cerrar, lo opuesto de `N`/`/`-. El composer y el detalle de una nota
  * ya se cierran solos con Esc: son `<dialog>` nativo, el navegador ya les da esa
  * tecla gratis (`onCancel`, `NoteComposer.tsx`/`NoteDetail.tsx`), así que lo único
- * que hace falta acá es el buscador -un `<input>` común, sin ese comportamiento
- * nativo-. Si hay un `<dialog>` abierto, este handler no toca el buscador: "lo que
- * está abierto" en ese momento es el diálogo, no las dos cosas a la vez -evita que
- * cerrar el detalle de una nota con Esc también borre de paso una búsqueda activa
- * sin ninguna relación con eso.
+ * que hace falta acá es lo que NO tiene ese comportamiento nativo. Cascada de
+ * prioridad, de mayor a menor, cada nivel se queda con el Esc entero -nunca dos
+ * cosas a la vez con un solo toque-:
+ *
+ * 1. `<dialog>` abierto -no se toca nada, ya se cierra solo.
+ * 2. Panel de chat abierto (`features/chat/ChatPanel.tsx`) -lo cierra, y ahí
+ *    termina: no toca una búsqueda que hubiera en curso al mismo tiempo. No es un
+ *    `<dialog>`, a propósito (empuja el lienzo en vez de taparlo, ver
+ *    `ChatContext.ts`), así que no tiene el cierre nativo gratis del punto 1.
+ * 3. Buscador con texto, o con el foco -lo vacía.
+ *
+ * Un segundo Esc, con el chat ya cerrado, recién ahí le toca al buscador -mismo
+ * criterio que ya regía dialog-vs-buscador antes de sumar este nivel del medio.
  */
 
 import { useEffect, useRef } from 'react'
@@ -41,10 +49,14 @@ export function useKeyboardShortcuts({
   onNewNote,
   searchQuery,
   onClearSearch,
+  chatOpen,
+  onCloseChat,
 }: {
   onNewNote: () => void
   searchQuery: string
   onClearSearch: () => void
+  chatOpen: boolean
+  onCloseChat: () => void
 }): React.RefObject<HTMLInputElement | null> {
   const searchInputRef = useRef<HTMLInputElement>(null)
 
@@ -52,6 +64,11 @@ export function useKeyboardShortcuts({
     function handleKeyDown(e: KeyboardEvent): void {
       if (e.key === 'Escape') {
         if (hasOpenDialog()) return // el <dialog> ya se cierra solo (onCancel)
+        if (chatOpen) {
+          e.preventDefault()
+          onCloseChat()
+          return
+        }
         const searching = searchQuery !== '' || document.activeElement === searchInputRef.current
         if (!searching) return
         e.preventDefault()
@@ -74,7 +91,7 @@ export function useKeyboardShortcuts({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onNewNote, searchQuery, onClearSearch])
+  }, [onNewNote, searchQuery, onClearSearch, chatOpen, onCloseChat])
 
   return searchInputRef
 }

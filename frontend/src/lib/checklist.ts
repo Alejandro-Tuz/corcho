@@ -46,6 +46,25 @@ export function proseOnly(text: string): string {
     .trim()
 }
 
+/**
+ * Título de una nota, una sola línea: la primera línea de la prosa, o el primer
+ * ítem del checklist si la nota es 100% checklist. Distinto de lo que pinta
+ * `Note.tsx` como cuerpo del post-it (`proseOnly(note.text)` completo, sin
+ * recortar a una línea) -son dos preguntas distintas, no el mismo valor con otro
+ * nombre: acá hace falta un título compacto para exportar a markdown
+ * (`store/exportMarkdown.ts`) y para las etiquetas de nota del chat
+ * (`features/chat/ChatPanel.tsx`), y ambos ya lo necesitaban por separado antes de
+ * que esto existiera -esto une esas dos copias, no agrega un tercer lugar.
+ */
+export function noteTitle(text: string, fallback = '(sin texto)'): string {
+  const proseLines = proseOnly(text)
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+  if (proseLines.length > 0) return proseLines[0]
+  const items = parseChecklist(text)
+  return items[0]?.text ?? fallback
+}
+
 export function toggleChecklistLine(text: string, line: number): string {
   const lines = text.split('\n')
   const match = lines[line] !== undefined ? CHECKLIST_LINE.exec(lines[line]) : null
