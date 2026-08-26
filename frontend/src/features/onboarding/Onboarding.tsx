@@ -14,14 +14,27 @@
  * `PARTICIPANT_COLOR_HEX` -antes estos dos eran botones de puro texto con el
  * nombre del valor, a propósito, para no construir esto dos veces (CLAUDE.md,
  * día 2: "funcionalidad primero, diseño después").
+ *
+ * ## Prellenado al crear una sala nueva desde otra
+ *
+ * `lib/createRoomPrefill.ts` (ahí el porqué completo de `sessionStorage` en vez
+ * de query string). El formulario arranca con lo que esa persona ya usaba en la
+ * sala de la que vino -no la salta, sigue siendo editable entero: decisión
+ * tomada a conciencia, "prellenado pero editable" en vez de "reusar sin
+ * preguntar" (asumiría en silencio que es la misma persona) o "preguntar en
+ * blanco siempre" (ignora que el caso común es que sí lo es). `peekCreatePrefill`
+ * -de solo lectura- alimenta los tres `useState`; `clearCreatePrefill` -el
+ * borrado- corre aparte, en un efecto, por lo que documenta ese módulo sobre
+ * StrictMode.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Avatar, ParticipantColor } from '../../realtime/protocol'
 import type { StoredIdentity } from '../../lib/identity'
 import { AVATARS, PARTICIPANT_COLORS } from '../../lib/constants'
 import { AVATAR_EMOJI } from '../../lib/avatarEmoji'
+import { clearCreatePrefill, peekCreatePrefill } from '../../lib/createRoomPrefill'
 import { PARTICIPANT_COLOR_HEX } from '../../lib/participantColor'
 import './Onboarding.css'
 
@@ -32,9 +45,15 @@ export function Onboarding({
   room: string
   onComplete: (identity: StoredIdentity) => void
 }) {
-  const [name, setName] = useState('')
-  const [avatar, setAvatar] = useState<Avatar>(AVATARS[0])
-  const [color, setColor] = useState<ParticipantColor>(PARTICIPANT_COLORS[0])
+  const [name, setName] = useState(() => peekCreatePrefill()?.name ?? '')
+  const [avatar, setAvatar] = useState<Avatar>(() => peekCreatePrefill()?.avatar ?? AVATARS[0])
+  const [color, setColor] = useState<ParticipantColor>(
+    () => peekCreatePrefill()?.color ?? PARTICIPANT_COLORS[0],
+  )
+
+  useEffect(() => {
+    clearCreatePrefill()
+  }, [])
 
   function handleSubmit(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault()

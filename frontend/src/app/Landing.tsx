@@ -3,16 +3,15 @@
  * no un router -no hay uno en el proyecto y con una sola pantalla real (la sala) no
  * se justifica la dependencia (CLAUDE.md: no agregar sin justificar)-. Una recarga
  * completa al entrar a la sala es aceptable acá: no hay estado que preservar antes de
- * eso.
+ * eso. Mismo criterio, en el sentido contrario, para volver acá desde una sala
+ * (`Canvas.tsx`: un `<a href="/">` común en la marca) y para crear otra sala sin
+ * pasar por acá (el botón "+" al lado de esa marca, mismo `createRoom` de
+ * `lib/api.ts`).
  */
 
 import { useState } from 'react'
-import { apiBaseUrl } from '../lib/backendUrl'
+import { createRoom } from '../lib/api'
 import './Landing.css'
-
-interface RoomCreateResponse {
-  slug: string
-}
 
 export function Landing() {
   const [creating, setCreating] = useState(false)
@@ -22,14 +21,8 @@ export function Landing() {
     setCreating(true)
     setError(null)
     try {
-      const res = await fetch(`${apiBaseUrl()}/rooms`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      })
-      if (!res.ok) throw new Error(`status ${String(res.status)}`)
-      const data = (await res.json()) as RoomCreateResponse
-      window.location.href = `/${data.slug}`
+      const slug = await createRoom()
+      window.location.href = `/${slug}`
     } catch {
       setError('no se pudo crear la sala, reintentá')
       setCreating(false)

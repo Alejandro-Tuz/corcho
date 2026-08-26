@@ -55,6 +55,21 @@
  * y no podría leerlo con `useContext` (ver el docstring de ese hook). El layout de
  * dos columnas (`.room-layout`/`.room-main`, `Canvas.css`) es lo que hace que el
  * panel "empuje" el lienzo en vez de taparlo.
+ *
+ * ## Volver a la portada y crear otra sala (CLAUDE.md: hueco de navegación -antes
+ * la única salida era editar la URL a mano)
+ *
+ * Los dos controles viven juntos en la esquina de la marca, no en la fila de la
+ * derecha -que ya tenía ocho-. `Corcho` pasa a ser un `<a href="/">` común, un
+ * solo click, la convención estándar de cualquier web -sin router, así que esto
+ * es una recarga completa, simétrica con la que ya hace `Landing.tsx` en el
+ * sentido contrario ("aceptable acá: no hay estado que preservar")-. El botón
+ * "+" reusa `lib/api.ts` (`createRoom`, el mismo `POST /rooms` que ya usaba
+ * `Landing.tsx`, extraído para no duplicar el `fetch`) y navega igual, con
+ * `window.location.href` -ver `lib/createRoomPrefill.ts` para el prellenado que
+ * `Onboarding.tsx` recoge del otro lado. Ninguno de los dos cierra el socket a
+ * mano: la navegación dura ya lo hace sola, mismo mecanismo que cerrar una
+ * pestaña (verificado y documentado en "Multi-pestaña", CLAUDE.md).
  */
 
 import { useMemo, useRef, useState } from 'react'
@@ -65,7 +80,9 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts'
 import { useLinkedNote } from '../../hooks/useLinkedNote'
 import { useNotificationSound } from '../../hooks/useNotificationSound'
 import { throttle } from '../../realtime/throttle'
+import { createRoom } from '../../lib/api'
 import { BACKGROUNDS } from '../../lib/constants'
+import { saveCreatePrefill } from '../../lib/createRoomPrefill'
 import { downloadTextFile } from '../../lib/downloadFile'
 import { roomToMarkdown } from '../../store/exportMarkdown'
 import { noteMatchesSearch } from '../../store/selectors'
@@ -106,6 +123,7 @@ export function Canvas({ noteId }: { noteId: string | null }) {
   const slug = useRoom((s) => s.slug)
   const roomName = useRoom((s) => s.name)
   const participants = useRoom((s) => s.participants)
+  const me = useRoom((s) => s.me)
   const actions = useRoomActions()
 
   const [composerOpen, setComposerOpen] = useState(false)
@@ -115,6 +133,8 @@ export function Canvas({ noteId }: { noteId: string | null }) {
   const [chatOpen, setChatOpen] = useState(false)
   const [chatFilterNoteId, setChatFilterNoteId] = useState<string | null>(null)
   const [chatWatching, setChatWatching] = useState(false)
+  const [creatingRoom, setCreatingRoom] = useState(false)
+  const [createRoomError, setCreateRoomError] = useState<string | null>(null)
   const { muted, toggleMuted } = useNotificationSound(chatWatching)
   const canvasRef = useRef<HTMLDivElement>(null)
   const throttledSendCursor = useMemo(
@@ -173,6 +193,21 @@ export function Canvas({ noteId }: { noteId: string | null }) {
     downloadTextFile(`corcho-${slug ?? 'sala'}-${datePart}.md`, markdown, 'text/markdown;charset=utf-8')
   }
 
+  async function handleCreateRoom(): Promise<void> {
+    setCreatingRoom(true)
+    setCreateRoomError(null)
+    try {
+      const newSlug = await createRoom()
+      // Sin `me`, la sala nueva simplemente arranca en blanco -mismo formulario
+      // que ya existe, sin prellenado, no un caso especial.
+      if (me !== null) saveCreatePrefill({ name: me.name, avatar: me.avatar, color: me.color })
+      window.location.href = `/${newSlug}`
+    } catch {
+      setCreateRoomError('no se pudo crear la sala, reintentá')
+      setCreatingRoom(false)
+    }
+  }
+
   const noteList = Object.values(notes)
   const matchingNoteCount =
     searchQuery.trim() === ''
@@ -205,7 +240,24 @@ export function Canvas({ noteId }: { noteId: string | null }) {
         <div className="room-layout">
           <div className="room-main">
             <div className="canvas-toolbar">
-              <span className="canvas-brand">Corcho</span>
+              <div className="canvas-brand-group">
+                <a href="/" className="canvas-brand" title="Volver a la portada">
+                  Corcho
+                </a>
+                <button
+                  type="button"
+                  className="canvas-new-room-btn"
+                  onClick={() => void handleCreateRoom()}
+                  disabled={creatingRoom}
+                  title="Crear una sala nueva"
+                  aria-label="Crear una sala nueva"
+                >
+                  {creatingRoom ? '…' : '+'}
+                </button>
+                {createRoomError !== null && (
+                  <span className="canvas-new-room-error">{createRoomError}</span>
+                )}
+              </div>
 
               <button
                 type="button"

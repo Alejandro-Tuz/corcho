@@ -34,11 +34,57 @@
   background: rgba(179, 73, 47, 0.1);
 }
 
+/* Volver a la portada + crear otra sala (CLAUDE.md: hueco de navegación), los dos
+   juntos en la esquina de la marca -no en la fila de la derecha, que ya tenía
+   ocho controles-. */
+.canvas-brand-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
+}
+
 .canvas-brand {
   font-weight: 700;
   font-size: 15px;
   color: var(--ink);
-  margin-right: 6px;
+  text-decoration: none;
+}
+
+.canvas-brand:hover {
+  color: var(--cork);
+}
+
+.canvas-new-room-btn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink-soft);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+}
+
+.canvas-new-room-btn:hover:not(:disabled) {
+  border-color: var(--cork);
+  color: var(--ink);
+}
+
+.canvas-new-room-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.canvas-new-room-error {
+  font-size: 11px;
+  color: var(--danger);
+  white-space: nowrap;
 }
 
 .canvas-bg-picker {

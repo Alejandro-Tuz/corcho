@@ -742,6 +742,57 @@ anterior -no era un bug de código):
     reconexión de las dos casi a la vez. Con las pestañas ya identificadas por
     separado y sin recargarlas juntas -que fue como se armó la prueba original, día
     2, y funcionó- no pasa nada de esto.
+- **Crear otra sala y volver a la portada** (hueco de producto encontrado por el
+  usuario, no estaba en ninguna lista: "ningún producto funciona así" -una vez
+  dentro de una sala, la única salida era editar la URL a mano). Dos decisiones
+  resueltas antes de escribir código, a pedido explícito:
+  - **Prellenado, pero editable -no "reusar sin preguntar" ni "preguntar en
+    blanco siempre".** Al crear una sala nueva desde dentro de otra, el
+    formulario de `Onboarding.tsx` arranca con el nombre/avatar/color que esa
+    persona ya usaba, pero se sigue mostrando entero y hay que confirmarlo
+    igual -reusar sin preguntar asumiría en silencio "sos la misma persona"
+    (rompe el caso real de ser alguien distinto en la sala nueva, sin ninguna
+    señal de que pasó); preguntar en blanco siempre ignora que el caso común,
+    con ventaja, es que sí es la misma persona armando otra sala.
+  - **`lib/createRoomPrefill.ts`: `sessionStorage`, no query string.** Primera
+    idea descartada tras un comentario del usuario: un query string
+    (`/{slug}?name=...`) sobrevive la recarga completa que hace falta (misma
+    navegación dura que ya usa `Landing.tsx`), pero un nombre de pila quedaría
+    en el historial del navegador -el `replaceState` que lo limpiaría corre
+    recién en la página nueva, después de que la navegación ya pasó- y, el día
+    que esto se despliegue, en el log de acceso del servidor. `sessionStorage`
+    sobrevive la misma recarga sin ninguna de las dos exposiciones, y de paso
+    es por PESTAÑA -el alcance exacto de este gesto, que siempre sigue en la
+    misma pestaña (`window.location.href`, nunca `window.open`)-, sin trade-off
+    que anotar para este caso puntual. Lectura (`peekCreatePrefill`, idempotente)
+    y borrado (`clearCreatePrefill`) separados a propósito: `Onboarding.tsx` lee
+    el mismo valor en tres `useState` distintos, y un único "consumir" que
+    lea-y-borre a la vez perdería el prellenado un tercio de las veces bajo
+    React 18 StrictMode (los inicializadores perezosos de `useState` corren dos
+    veces en desarrollo).
+  - **Salir de una sala: un `<a href="/">` común, navegación dura, sin nada que
+    cerrar a mano.** Simétrico con la decisión ya tomada en el sentido
+    contrario (`Landing.tsx`: "una recarga completa al entrar a la sala es
+    aceptable acá"). El cierre del socket no necesita código propio: la
+    navegación destruye el contexto de JS igual que cerrar una pestaña -mismo
+    mecanismo ya verificado y documentado en "Multi-pestaña" más abajo-, así
+    que el servidor ve la desconexión solo. Sin confirmación tipo "¿seguro que
+    querés salir?": no es destructivo, la sala sigue intacta, es el mismo gesto
+    que cerrar la pestaña, que tampoco confirma nada hoy.
+  - **Ubicación: los dos controles juntos en la esquina de la marca, no en la
+    fila de la derecha** -que ya tenía ocho-. `Corcho` pasa de `<span>` a
+    `<a href="/">`, un solo click, la convención estándar de cualquier web
+    (sugerencia del propio usuario). Un botón "+" al lado -mismo estilo que el
+    "×" de borrar una nota, sin ícono SVG nuevo- crea la sala nueva. `lib/api.ts`
+    (`createRoom`) extraído para que `Landing.tsx` y este botón llamen al mismo
+    `POST /rooms` en vez de duplicar el `fetch` y el manejo de error.
+  - Verificado en el navegador contra el backend real: crear una sala nueva
+    desde dentro de otra prellena el formulario con la identidad de esa sala
+    (`sessionStorage` limpio después de leerlo -confirmado a mano); crear desde
+    la portada, sin `state.me`, deja el formulario en blanco -no un caso
+    especial, simplemente nada que precargar-; volver a la portada navega
+    limpio; y -contra Postgres real- salir de una sala deja `disconnected_at`
+    seteado para esa persona sin ningún código propio que lo dispare.
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
@@ -909,7 +960,8 @@ corcho/
 │   │   ├── main.tsx         [x]
 │   │   ├── App.tsx          [x]   ruteo mínimo por path, sin librería -incluye
 │   │   │                          /{slug}/{noteId}, enlace directo a una nota
-│   │   ├── app/              [x]  Landing, RoomPage, RoomStoreProvider/Context
+│   │   ├── app/              [x]  Landing (crear sala, `lib/api.ts`), RoomPage,
+│   │   │                          RoomStoreProvider/Context
 │   │   ├── realtime/         [x]
 │   │   │   ├── protocol.ts        espejo manual de protocol.py
 │   │   │   ├── socket.ts          conexión, backoff, heartbeat, cola de reenvío
@@ -922,7 +974,9 @@ corcho/
 │   │   │   ├── activity.ts        formateo de la franja de actividad
 │   │   │   └── exportMarkdown.ts  exportar el tablero a markdown
 │   │   ├── features/
-│   │   │   ├── onboarding/   [x]  nombre + avatar + color
+│   │   │   ├── onboarding/   [x]  nombre + avatar + color, con prellenado al
+│   │   │   │                      crear una sala desde otra
+│   │   │   │                      (lib/createRoomPrefill.ts)
 │   │   │   ├── canvas/       [x]  lienzo, fondo (con patrones), columnas, buscar,
 │   │   │   │                      resaltar, seguir, enlace directo y layout de dos
 │   │   │   │                      columnas para el panel de chat
@@ -948,6 +1002,9 @@ corcho/
 │   │                               notificación (notificationSound.ts), foco de
 │   │                               teclado (domFocus.ts), descarga de archivos
 │   │                               (downloadFile.ts), formato de hora
+│   │                               (time.ts), crear sala (api.ts) y su
+│   │                               prellenado al crear desde otra
+│   │                               (createRoomPrefill.ts)
 │   │                               (time.ts)
 │   └── public/
 ├── .github/workflows/ci.yml [x]
