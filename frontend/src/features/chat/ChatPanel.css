@@ -3,6 +3,14 @@
  * flex de `.room-layout` (`Canvas.css`), así que angosta `.room-main` de verdad
  * ("empuja, no tapa"), pero se queda fija en pantalla al hacer scroll por un
  * tablero mucho más alto que la ventana.
+ *
+ * Excepción documentada en el breakpoint móvil (≤640px, ver `Canvas.css`): ahí
+ * ABIERTO tapa en vez de empujar. `width: 340px; max-width: 80vw` en un celular
+ * de 375px ya da ~300px empujando -quedarían ~75px para el tablero, inservible-.
+ * No hay ancho al que empujar en una pantalla tan angosta, así que la excepción
+ * a "atenuar, no ocultar/empuja no tapa" tiene un motivo concreto, no es
+ * "porque sí". Colapsado (la tira de 44px) no cambia: en las dos pantallas seguís
+ * viendo lo mismo hasta que lo abrís.
  */
 
 .chat-panel {
@@ -281,4 +289,27 @@
 .chat-composer-input:focus-visible {
   outline: 2px solid var(--cork);
   outline-offset: 1px;
+}
+
+/* --- celular (mismo breakpoint que Canvas.css) ------------------------------ */
+
+@media (max-width: 640px) {
+  /* Sale del flujo del flex de `.room-layout` -ya no angosta `.room-main`, lo
+     tapa entero-, mismo control de siempre (el botón de la tira) para cerrarlo:
+     ver el docstring de arriba del archivo para el porqué de esta excepción.
+     `.chat-panel.chat-panel--open` (compuesto), no solo `.chat-panel--open`:
+     necesita ganarle a `.chat-panel { position: sticky }` sin depender del
+     orden en que Vite termine intercalando este archivo y el de Canvas.css en
+     el bundle -dos selectores de una sola clase empatan en especificidad, y ahí
+     sí importaría el orden. */
+  .chat-panel.chat-panel--open {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    max-width: 100%;
+    height: 100svh;
+    border-left: none;
+    box-shadow: -4px 0 16px rgba(20, 12, 4, 0.18);
+    z-index: 30;
+  }
 }

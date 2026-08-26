@@ -53,6 +53,18 @@
   border-color: transparent rgba(0, 0, 0, 0.14) transparent transparent;
 }
 
+/* Sin esto, un dedo sobre una nota dispara el scroll nativo de la página en
+   competencia con el arrastre -Pointer Events (setPointerCapture, Note.tsx)
+   unifica mouse/touch/lápiz, pero no alcanza solo con eso para que el navegador
+   deje de interpretar el gesto como "quiere hacer scroll". No es cosmético: sin
+   esta línea el arrastre no funciona en una pantalla táctil real, es la función
+   central del tablero. Solo en `--interactive` (isMine): una nota ajena nunca
+   arranca un arrastre (Note.tsx corta en `handlePointerDown` si `!isMine`), así
+   que no hay motivo para robarle el scroll nativo a un dedo que la toca. */
+.note-card--interactive {
+  touch-action: none;
+}
+
 .note-card--interactive:hover {
   transform: translateY(-4px) scale(1.02) rotate(0deg);
   box-shadow:

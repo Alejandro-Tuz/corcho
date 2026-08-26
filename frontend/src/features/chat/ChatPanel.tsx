@@ -100,6 +100,11 @@ import './ChatPanel.css'
 
 const TYPING_IDLE_MS = 4000
 const TYPING_REFRESH_INTERVAL_MS = 3000
+// Mismo breakpoint que `Canvas.css`/`ChatPanel.css` (ninguna variable de CSS
+// compartida posible dentro de una condición de `@media`, ver el comentario en
+// Canvas.css) -acá hace falta en JS para no bloquear el scroll del body en
+// desktop, donde el panel empuja y el tablero de atrás sigue interactuable.
+const MOBILE_BREAKPOINT_QUERY = '(max-width: 640px)'
 
 function typingLabel(names: string[]): string | null {
   if (names.length === 0) return null
@@ -137,6 +142,21 @@ export function ChatPanel() {
   useEffect(() => {
     if (open) scrollToBottom()
   }, [open, scrollToBottom])
+
+  // Solo en el breakpoint móvil (ChatPanel.css: ahí el panel TAPA, no empuja):
+  // sin esto, el `<body>` seguía scrolleable detrás del overlay a pantalla
+  // completa -su scrollbar deja una tira angosta del tablero asomando por el
+  // borde, y un gesto de dos dedos podía mover el tablero oculto sin que se
+  // viera-. En desktop no se toca: ahí el tablero de atrás sigue empujado, no
+  // tapado, y tiene que seguir siendo scrolleable con el panel abierto.
+  useEffect(() => {
+    if (!open || !window.matchMedia(MOBILE_BREAKPOINT_QUERY).matches) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [open])
 
   // Ajustado durante el render, no en un efecto -mismo patrón que `prevStatus`/
   // `justLanded` en Note.tsx para "sincronizar estado cuando algo cambió": React

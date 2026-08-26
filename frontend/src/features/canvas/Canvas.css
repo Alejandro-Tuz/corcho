@@ -1,9 +1,20 @@
+/* Breakpoint móvil de todo el proyecto: 640px, celular (retrato y la mayoría de
+   los apaisados chicos) no tablet -CLAUDE.md pide "responsive en celular"
+   puntualmente-. Sin variable CSS compartida porque `@media` no puede leer un
+   custom property en su condición; el número se repite a mano acá,
+   `ChatPanel.css` y `Note.css` (ver el comentario de `.note-card--interactive`
+   sobre por qué ese cambio no necesita el breakpoint: `touch-action: none` es
+   inofensivo en desktop, no hace falta condicionarlo). */
+
 /* Layout de dos columnas: el panel de chat (`features/chat/ChatPanel.tsx`)
    empuja el lienzo angostando `.room-main`, nunca lo tapa -mismo principio que ya
    rige buscar/resaltar ("atenuar, no ocultar"). Seguro por el mismo motivo que ya
    sostiene achicar la ventana: `position_x/y` de una nota son relativos a la caja
    de SU columna (`Column.tsx`), no a un lienzo global, así que angostar
-   `.room-main` es el mismo caso ya soportado, con otro disparador. */
+   `.room-main` es el mismo caso ya soportado, con otro disparador. En el
+   breakpoint móvil, `ChatPanel.css` deja de empujar y pasa a tapar -ahí no hay
+   lugar al que empujar-, así que `.room-layout` no necesita cambiar acá: sigue
+   siendo el mismo `flex` de siempre alrededor de una tira colapsada de 44px. */
 .room-layout {
   display: flex;
   align-items: flex-start;
@@ -226,4 +237,47 @@
   padding: 24px;
   font-family: var(--font-ui);
   color: var(--ink-soft);
+}
+
+/* --- celular (ver el comentario del breakpoint arriba del todo) ------------- */
+
+@media (max-width: 640px) {
+  /* Ajuste, no reconstrucción: la toolbar ya tenía `flex-wrap: wrap` (arriba),
+     así que ya pasaba a varias líneas en vez de desbordar -un menú hamburguesa
+     que escondiera controles sería reconstruir, no ajustar, y nada de la lista
+     es prescindible en celular. Achicar gaps/paddings/anchos es lo que hace
+     falta para que esas líneas se vean prolijas, no accidentales. */
+  .canvas-toolbar {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .canvas-search-input {
+    width: 100px;
+  }
+
+  /* Apiladas, no en fila: con tres columnas repartiéndose ~350px cada una
+     quedaría con ~100px, y una nota mide 164px fijos -se saldría de la
+     columna (`.column-body` es `overflow: visible`, así que ni se recortaría,
+     quedaría superpuesta con la de al lado). Apilada, cada columna pasa a
+     tener casi el ancho completo de la pantalla -más lugar para una nota de
+     164px que el que ya le toca hoy en una ventana de escritorio angosta-.
+     `position_x/y` no cambia de significado (siguen siendo relativos a la
+     caja de SU columna) y el arrastre entre columnas tampoco -`Note.tsx`
+     decide dónde cayó con `document.elementFromPoint()` sobre
+     `data-column-status`, indiferente a que las columnas estén en fila o
+     apiladas-, así que ninguno de los dos necesita cambiar acá.
+
+     Límite conocido, no resuelto a propósito: arrastrar de una columna a otra
+     que está fuera de la pantalla (por ejemplo "Bloqueado" a "Listo" con
+     varias notas de por medio) no tiene auto-scroll mientras se arrastra -no
+     existe hoy ni en desktop-. El destino tiene que estar ya visible. Mismo
+     criterio que la limitación ya documentada de `move_note`: el costo de
+     blindarlo no compensa esta semana. */
+  .canvas-board {
+    flex-direction: column;
+    gap: 14px;
+    margin: 0 10px 10px;
+    padding: 10px;
+  }
 }
