@@ -793,6 +793,69 @@ anterior -no era un bug de código):
     especial, simplemente nada que precargar-; volver a la portada navega
     limpio; y -contra Postgres real- salir de una sala deja `disconnected_at`
     seteado para esa persona sin ningún código propio que lo dispare.
+- **Responsive en celular** (mitad de "QR y responsive en celular" de
+  "Comprometido, pendiente" -la otra mitad, el QR, sigue pendiente: bloqueada a
+  propósito hasta elegir cómo se llega a la sala desde el celular en el demo -red
+  local, túnel temporal o Render-, ver el bullet siguiente). Cuatro cosas, en el
+  orden de prioridad que pidió el usuario -touch-action primero, es la función
+  central-.
+  - **`touch-action: none`** en `.note-card--interactive` (`Note.css`). Sin esto
+    un dedo sobre una nota dispara el scroll nativo de la página en competencia
+    con el arrastre -Pointer Events (`setPointerCapture`, ya en `Note.tsx`) unifica
+    mouse/touch/lápiz, pero no alcanza solo con eso para que el navegador deje de
+    interpretar el gesto como "querés hacer scroll"-. Solo en `--interactive`
+    (`isMine`): una nota ajena nunca arranca un arrastre
+    (`handlePointerDown` corta si `!isMine`), no hay motivo para robarle el
+    scroll nativo a un dedo que la toca.
+  - **Columnas apiladas** en vez de en fila, un solo breakpoint de proyecto
+    (`640px`, celular, no tablet -CLAUDE.md pide "responsive en celular"
+    puntualmente-, documentado arriba de `Canvas.css` porque `@media` no puede
+    leer una custom property, se repite a mano en `ChatPanel.css` y `Note.css`).
+    Sin cambio de modelo de datos: `position_x/y` ya son relativos a la caja de
+    SU columna (`Column.tsx`), no a un lienzo global, y `Note.tsx` decide el
+    destino de un arrastre con `document.elementFromPoint()` sobre
+    `data-column-status` -indiferente a que las columnas estén en fila o
+    apiladas-, así que ninguno de los dos necesitó tocarse. Verificado en el
+    navegador con un arrastre real entre columnas apiladas, no solo por lectura.
+    Límite conocido, no blindado a propósito, mismo criterio que `move_note`: sin
+    auto-scroll mientras se arrastra hacia una columna fuera de pantalla -el
+    destino tiene que estar ya visible-.
+  - **Toolbar**: ajuste, no reconstrucción -ya tenía `flex-wrap: wrap`, así que ya
+    pasaba a varias líneas en vez de desbordar-. Gaps, paddings y el ancho del
+    buscador achicados en el breakpoint para que esas líneas se vean prolijas, sin
+    esconder ningún control detrás de un menú.
+  - **Panel de chat**: pasa de empujar el lienzo (`position: sticky`, como en
+    desktop) a taparlo entero (`position: fixed; inset: 0`) solo en el
+    breakpoint móvil -única excepción documentada a "atenuar/empujar, nunca
+    ocultar/tapar" que ya rige buscar, resaltar y el resto de la app: en un
+    celular de 375px, `340px; max-width: 80vw` empujando dejaría ~75px para el
+    tablero, inservible, no hay ancho al que empujar-. Selector compuesto
+    `.chat-panel.chat-panel--open`, no solo `.chat-panel--open`, para no
+    depender del orden en que Vite intercale este archivo y `Canvas.css` en el
+    bundle -dos selectores de una sola clase empatan en especificidad-. Bug real
+    encontrado probando en el navegador: con el panel "tapando" a pantalla
+    completa, el `<body>` de atrás seguía siendo scrolleable -su scrollbar
+    dejaba una tira angosta del tablero asomando por el borde, confirmado con
+    `getBoundingClientRect()` (`1905` contra un `window.innerWidth` de `1920`)-.
+    Corregido con un efecto en `ChatPanel.tsx` que fija
+    `document.body.style.overflow = 'hidden'` mientras el panel está abierto,
+    acotado al mismo breakpoint vía `window.matchMedia` -en desktop el tablero de
+    atrás sigue empujado, no tapado, y tiene que seguir siendo scrolleable con el
+    panel abierto.
+  - `NoteComposer.css`, `NoteDetail.css`, `Onboarding.css` y `Landing.css` ya
+    eran mobile-safe de pulidas anteriores (`width: min(Npx, 92vw)` /
+    `min(Npx, 100%)`), sin cambios acá -el alcance real terminó siendo estos
+    cuatro puntos, no toda la lista de componentes.
+  - Verificado en el navegador real -`resize_window` no cambiaba el viewport
+    efectivo en este entorno (`window.innerWidth` se quedaba en ~1920 pidiendo
+    390), así que se ensanchó el breakpoint a `2000px` en los tres archivos de
+    forma temporal para que la ventana real de 1920px cayera en la condición
+    "móvil", se probó con interacciones reales (crear nota, arrastrar entre
+    columnas apiladas, abrir/cerrar el panel de chat, inspeccionar con
+    `javascript_tool`), y se revirtió: confirmado por `grep` que quedan
+    exactamente tres ocurrencias de `640px` y cero de `2000px`, y que
+    `npm run lint` / `npm run build` vuelven a dar el mismo hash de CSS que antes
+    del cambio temporal.
 
 **Limitación conocida, documentada, no blindada (no compensa en tres días):**
 
@@ -836,7 +899,13 @@ anterior -no era un bug de código):
 
 **Comprometido, pendiente** -ya estaba planeado, sigue en pie-:
 
-1. QR y responsive en celular.
+1. QR y responsive en celular -responsive ya está en "Hecho", ver ese bullet;
+   el QR queda bloqueado a propósito: mostradas al usuario las tres formas de
+   llegar a la sala desde el celular en el demo (red local, túnel temporal,
+   deploy en Render), con lo que cambia cada una en `backendUrl.ts`, en el CORS
+   de `main.py` y en variables de entorno, y qué tan frágil es cada una en el
+   momento del demo. A la espera de que el usuario elija antes de escribir el
+   QR -pedido explícito, no un olvido.
 2. Deploy en Render.
 3. Modo teatro (`scripts/theater.py`) y README con diagrama.
 
